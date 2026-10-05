@@ -128,10 +128,25 @@ function formatarHoraInput(input) {
   const minutos = valor.slice(2);
   input.value = `${horas}:${minutos}`.slice(0, 5);
 }
-function linhaHorario(dia = 1, hora = '13:00') {
+function calcularFimPadrao(hora) {
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(hora)) return '';
+  const [h, m] = hora.split(':').map(Number);
+  const total = (h * 60 + m + 55) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+function linhaHorario(dia = 1, hora = '13:30', fim = '') {
   const d = document.createElement('div'); d.className = 'linha';
-  d.innerHTML = `<select aria-label="Dia da semana">${DIAS.map((n, i) => `<option value="${i}" ${i === dia ? 'selected' : ''}>${n}</option>`).join('')}</select><input type="text" value="${hora}" placeholder="HH:mm" aria-label="Horário no formato 24 horas"><button type="button" aria-label="Remover horário">✕</button>`;
-  d.querySelector('input').addEventListener('input', (e) => formatarHoraInput(e.target));
+  let fimInformado = Boolean(fim);
+  d.innerHTML = `<select aria-label="Dia da semana">${DIAS.map((n, i) => `<option value="${i}" ${i === dia ? 'selected' : ''}>${n}</option>`).join('')}</select><label>Início <input type="text" value="${hora}" placeholder="HH:mm" aria-label="Horário de início no formato 24 horas"></label><label>Fim <input type="text" value="${fim || calcularFimPadrao(hora)}" placeholder="HH:mm" aria-label="Horário de fim no formato 24 horas"></label><button type="button" aria-label="Remover horário">✕</button>`;
+  const [inicioInput, fimInput] = d.querySelectorAll('input');
+  inicioInput.addEventListener('input', (e) => {
+    formatarHoraInput(e.target);
+    if (!fimInformado) fimInput.value = calcularFimPadrao(e.target.value);
+  });
+  fimInput.addEventListener('input', (e) => {
+    fimInformado = true;
+    formatarHoraInput(e.target);
+  });
   d.querySelector('button').onclick = () => d.remove(); $('f-horarios').appendChild(d);
 }
 $('add-h').onclick = () => linhaHorario();
@@ -141,9 +156,13 @@ function limpar() { $('f-id').value = ''; $('f-nome').value = ''; $('f-prof').va
 $('cancelar').onclick = limpar;
 $('f-ano').onchange = () => { const ano = +$('f-ano').value; document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[ano]?.includes(c.value) || false)); };
 $('salvar').onclick = async () => {
-  const horarios = [...$('f-horarios').children].map((r) => ({ dia: +r.querySelector('select').value, hora: r.querySelector('input').value }));
-  if (horarios.some(({ hora }) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(hora))) {
-    $('f-erro').textContent = 'Use o formato 24 horas HH:mm, por exemplo 13:30.'; return;
+  const horarios = [...$('f-horarios').children].map((r) => {
+    const [hora, fim] = r.querySelectorAll('input');
+    return { dia: +r.querySelector('select').value, hora: hora.value, fim: fim.value };
+  });
+  if (horarios.some(({ hora, fim }) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(hora) ||
+      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(fim) || fim <= hora)) {
+    $('f-erro').textContent = 'Informe início e fim no formato 24 horas HH:mm, com o fim depois do início.'; return;
   }
   const body = { nome: $('f-nome').value, ano: +$('f-ano').value, professor: $('f-prof').value, conteudo_maior_dificuldade: $('f-conteudo-dificil').value || null,
     horarios,
@@ -154,7 +173,7 @@ $('salvar').onclick = async () => {
 async function carregarSalas() {
   salas = await api('/api/admin/salas');
   $('lista-salas').innerHTML = salas.map((s) => `<div class="item"><label><input type="checkbox" data-selecionar-sala="${s.id}" aria-label="Selecionar sala ${esc(s.nome)}"> Selecionar</label> <b>${esc(s.nome)}</b> — ${s.ano}º ano — ${esc(s.professor)}<br>
-    <small>Conteúdo para reforçar: ${s.conteudo_maior_dificuldade ? NOMES[s.conteudo_maior_dificuldade] || s.conteudo_maior_dificuldade : 'nenhum'}<br>${s.horarios.map((h) => DIAS[h.dia] + ' ' + h.hora).join(', ') || 'sem horário'} · ${s.atividades.map((a) => NOMES[a]).join(', ') || 'sem conteúdo'}</small>
+    <small>Conteúdo para reforçar: ${s.conteudo_maior_dificuldade ? NOMES[s.conteudo_maior_dificuldade] || s.conteudo_maior_dificuldade : 'nenhum'}<br>${s.horarios.map((h) => DIAS[h.dia] + ' ' + h.hora + '–' + h.fim).join(', ') || 'sem horário'} · ${s.atividades.map((a) => NOMES[a]).join(', ') || 'sem conteúdo'}</small>
     <div class="linha"><button data-ed="${s.id}">Editar</button><button data-del="${s.id}">Excluir</button></div></div>`).join('') || '<p>Nenhuma sala criada ainda.</p>';
   $('sel-sala').innerHTML = salas.map((s) => `<option value="${s.id}">${esc(s.nome)} (${s.ano}º)</option>`).join('');
   atualizarSelecaoSalas();
@@ -185,7 +204,7 @@ $('lista-salas').onclick = async (e) => {
   if (d.del && confirm('Excluir esta sala?')) { await api('/api/admin/salas/' + d.del, 'DELETE'); carregarSalas(); }
   if (d.ed) { const s = salas.find((x) => x.id == d.ed); limpar(); $('f-horarios').innerHTML = '';
     $('f-id').value = s.id; $('f-nome').value = s.nome; $('f-ano').value = s.ano; $('f-prof').value = s.professor; $('f-conteudo-dificil').value = s.conteudo_maior_dificuldade || ''; $('form-titulo').textContent = 'Editar sala';
-    s.horarios.forEach((h) => linhaHorario(h.dia, h.hora)); document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = s.atividades.includes(c.value))); scrollTo(0, 0); }
+    s.horarios.forEach((h) => linhaHorario(h.dia, h.hora, h.fim)); document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = s.atividades.includes(c.value))); scrollTo(0, 0); }
 };
 
 // ---------- Relatórios ----------

@@ -7,19 +7,19 @@ const os = require('node:os');
 const path = require('node:path');
 const { sincronizarCadastros } = require('./database-seed');
 
-function criarBanco() {
+function criarBanco(comFim = false) {
   const db = new DatabaseSync(':memory:');
   db.exec(`
     CREATE TABLE salas(id INTEGER PRIMARY KEY, nome TEXT NOT NULL, ano INTEGER NOT NULL, professor TEXT NOT NULL,
       periodo TEXT NOT NULL DEFAULT 'Manhã', dificuldade TEXT NOT NULL DEFAULT 'Básico', conteudo_maior_dificuldade TEXT);
-    CREATE TABLE horarios(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, dia INTEGER NOT NULL, hora TEXT NOT NULL);
+    CREATE TABLE horarios(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, dia INTEGER NOT NULL, hora TEXT NOT NULL${comFim ? ', fim TEXT' : ''});
     CREATE TABLE conteudos(sala_id INTEGER NOT NULL, atividade TEXT NOT NULL, PRIMARY KEY(sala_id,atividade));
   `);
   return db;
 }
 
 test('importa salas, horários e conteúdos do banco incluído sem duplicar em reinicializações', () => {
-  const origem = criarBanco(), destino = criarBanco();
+  const origem = criarBanco(), destino = criarBanco(true);
   origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(1, 'Turma A', 2, 'Professora');
   origem.prepare('INSERT INTO horarios(sala_id,dia,hora) VALUES(?,?,?)').run(1, 2, '09:00');
   origem.prepare('INSERT INTO conteudos(sala_id,atividade) VALUES(?,?)').run(1, 'soma');
@@ -37,7 +37,7 @@ test('importa salas, horários e conteúdos do banco incluído sem duplicar em r
 });
 
 test('preserva sala remota com ID conflitante e importa as salas faltantes', () => {
-  const origem = criarBanco(), destino = criarBanco();
+  const origem = criarBanco(), destino = criarBanco(true);
   origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(1, 'Sala local', 2, 'Docente local');
   origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(2, 'Sala nova', 3, 'Docente local');
   origem.prepare('INSERT INTO horarios(sala_id,dia,hora) VALUES(?,?,?)').run(1, 2, '09:00');
@@ -51,6 +51,16 @@ test('preserva sala remota com ID conflitante e importa as salas faltantes', () 
   assert.equal(destino.prepare('SELECT nome FROM salas WHERE id=2').get().nome, 'Sala nova');
   assert.equal(destino.prepare('SELECT COUNT(*) n FROM horarios').get().n, 0);
   assert.equal(destino.prepare('SELECT COUNT(*) n FROM conteudos').get().n, 0);
+  origem.close(); destino.close();
+});
+
+test('importa o horário de fim quando a origem já o possui', () => {
+  const origem = criarBanco(true), destino = criarBanco(true);
+  origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(1, 'Turma A', 2, 'Professora');
+  origem.prepare('INSERT INTO horarios(sala_id,dia,hora,fim) VALUES(?,?,?,?)').run(1, 1, '13:30', '14:30');
+
+  assert.equal(sincronizarCadastros(destino, origem).horariosImportados, 1);
+  assert.equal(destino.prepare('SELECT fim FROM horarios WHERE sala_id=1').get().fim, '14:30');
   origem.close(); destino.close();
 });
 
@@ -69,6 +79,9 @@ test('inicializar com DB_FILE importa os cadastros do banco que acompanha o depl
       assert.equal(banco.prepare(`SELECT COUNT(*) n FROM ${tabela}`).get().n,
         base.prepare(`SELECT COUNT(*) n FROM ${tabela}`).get().n);
     }
+    assert.ok(banco.prepare('PRAGMA table_info(horarios)').all().some((coluna) => coluna.name === 'fim'));
+    assert.ok(banco.prepare('PRAGMA table_info(sessoes)').all().some((coluna) => coluna.name === 'fim_previsto_em'));
+    assert.equal(banco.prepare('SELECT COUNT(*) n FROM horarios WHERE fim IS NULL').get().n, 0);
     banco.close(); base.close();
   } finally {
     fs.rmSync(pastaTemporaria, { recursive: true, force: true });

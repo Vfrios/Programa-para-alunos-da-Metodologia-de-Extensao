@@ -2,12 +2,20 @@
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path');
 const { sincronizarCadastros } = require('./database-seed');
+const { horaFim } = require('./agendamento');
 const caminhoBase = path.resolve(__dirname, '../database/matematica.db');
 const caminhoBanco = process.env.DB_FILE === ':memory:' ? ':memory:'
   : process.env.DB_FILE ? path.resolve(process.env.DB_FILE) : caminhoBase;
 if (caminhoBanco !== ':memory:') fs.mkdirSync(path.dirname(caminhoBanco), { recursive: true });
 const db = new DatabaseSync(caminhoBanco);
 db.exec(fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8'));
+for (const [tabela, coluna, definicao] of [
+  ['horarios', 'fim', 'TEXT'],
+  ['sessoes', 'fim_previsto_em', 'TEXT']
+]) {
+  const colunas = new Set(db.prepare(`PRAGMA table_info(${tabela})`).all().map((coluna) => coluna.name));
+  if (!colunas.has(coluna)) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${definicao}`);
+}
 const colunasSalas = new Set(db.prepare('PRAGMA table_info(salas)').all().map((coluna) => coluna.name));
 for (const [nome, definicao] of [
   ['periodo', 'TEXT NOT NULL DEFAULT "Manhã"'],
@@ -27,4 +35,7 @@ if (caminhoBanco !== caminhoBase && caminhoBanco !== ':memory:') {
     origem.close();
   }
 }
+const horariosSemFim = db.prepare('SELECT id,hora FROM horarios WHERE fim IS NULL').all();
+const atualizarFimHorario = db.prepare('UPDATE horarios SET fim=? WHERE id=?');
+horariosSemFim.forEach((horario) => atualizarFimHorario.run(horaFim(horario.hora), horario.id));
 module.exports = db;

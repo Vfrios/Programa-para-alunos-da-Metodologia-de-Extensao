@@ -1,7 +1,7 @@
 Perfeito! Segue a **documentação completa e definitiva (v2.7.2)**, já com todas as correções:
 
 - **Turma = Sala** (mesma coisa).
-- Cada turma tem **1 aula por semana** de **50 minutos**.
+- Cada turma tem **1 aula por semana**, com **50 minutos de atividade** e 5 minutos finais para encerramento.
 - Ranking **por turma**, salvo em histórico, novo ranking para a próxima turma.
 - Sala de espera estilo Kahoot com início controlado pelo professor.
 - Contagem regressiva sincronizada.
@@ -72,7 +72,7 @@ Além disso, o sistema possui:
 - **Sala de espera e início controlado** pelo professor.
 - **Perguntas bônus** em marcos de combo.
 
-> **Importante:** neste projeto, **turma = sala**. Cada turma tem **um único horário por semana** e uma aula de **50 minutos**.
+> **Importante:** neste projeto, **turma = sala**. Cada turma tem **um único horário por semana**. O horário de início e o de fim são configurados para cada aula; o horário padrão termina 55 minutos após o início, com 50 minutos de atividade e 5 minutos finais para encerramento.
 
 ---
 
@@ -113,7 +113,7 @@ Criar uma plataforma educacional adaptativa que auxilie alunos do 2º e 3º ano 
 
 - **Local:** Laboratório de informática da escola
 - **Dispositivo:** Computadores desktop (um por aluno)
-- **Duração:** Aulas de **50 minutos** (sendo os **últimos 5 minutos** para notificação de término)
+- **Duração:** configurada pelo horário de início e fim de cada aula (55 minutos na grade padrão: 50 minutos de atividade e 5 minutos finais para encerramento)
 - **Frequência:** 1 aula por semana por turma
 - **Conexão:** Rede local (Wi-Fi ou cabo)
 - **Acesso do aluno:** apenas o **nome** — sem login, sem senha, sem cadastro prévio
@@ -127,16 +127,16 @@ A grade abaixo é a **configuração real** do sistema:
 
 | Dia | Horário | Ano | Turma | Duração | Notificação |
 |---|---|---|---|---|---|
-| Segunda | 13:30 | 3º ano | Turma 7 | 50 min | 45 min |
-| Segunda | 14:40 | 2º ano | Turma 7 | 50 min | 45 min |
-| Terça | 14:40 | 2º ano | Turma 4 | 50 min | 45 min |
-| Terça | 16:30 | 3º ano | Turma 5 | 50 min | 45 min |
-| Quinta | 13:00 | 2º ano | Turma 8 | 50 min | 45 min |
-| Quinta | 14:40 | 3º ano | Turma 6 | 50 min | 45 min |
-| Quinta | 16:30 | 3º ano | Turma 8 | 50 min | 45 min |
+| Segunda | 13:30–14:25 | 3º ano | Turma 7 | 55 min | 50 min |
+| Segunda | 14:40–15:35 | 2º ano | Turma 7 | 55 min | 50 min |
+| Terça | 14:40–15:35 | 2º ano | Turma 4 | 55 min | 50 min |
+| Terça | 16:30–17:25 | 3º ano | Turma 5 | 55 min | 50 min |
+| Quinta | 13:00–13:55 | 2º ano | Turma 8 | 55 min | 50 min |
+| Quinta | 14:40–15:35 | 3º ano | Turma 6 | 55 min | 50 min |
+| Quinta | 16:30–17:25 | 3º ano | Turma 8 | 55 min | 50 min |
 
 > **Total:** 7 turmas, 7 aulas por semana, 1 aula por turma.
-> **Observação:** a duração é de **50 minutos**. A notificação de término ocorre nos **últimos 5 minutos** (a partir dos 45 min).
+> **Observação:** os horários de início e fim são cadastrados no painel por sala. Na grade padrão, são 50 minutos de atividade e os últimos 5 minutos para encerramento.
 
 ---
 
@@ -394,7 +394,7 @@ O ranking é atualizado **em tempo real** via WebSocket.
 O sistema deve:
 
 - Identificar automaticamente **qual turma está ativa** com base no dia e horário.
-- Considerar a **duração da aula** (50 minutos).
+- Considerar a **duração da atividade** (50 minutos), além dos 5 minutos finais para encerramento.
 - Informar ao aluno **quanto tempo resta** de aula.
 - Nos **últimos 5 minutos**, exibir uma **notificação de término** para os alunos.
 
@@ -448,7 +448,7 @@ O sistema deve oferecer um **painel administrativo** com:
 - Cadastro de **turmas** (número + ano).
 - Cadastro de **horários** por dia, hora, turma e conteúdo.
 - Visualização de **rankings salvos** por aula.
-- Configuração da **duração da aula** (50 minutos).
+- Configuração do **horário da aula** (50 minutos de atividade e 5 minutos finais para encerramento).
 - Configuração do **tempo de notificação** (padrão: 5 minutos).
 - **Controle da aula** em tempo real (estilo Kahoot).
 
@@ -751,7 +751,7 @@ Se um aluno entrar **após o início da atividade**:
 - **ID** (identificador único)
 - **Dia da semana** (1 = segunda, 2 = terça, ..., 5 = sexta)
 - **Hora de início** (ex: "13:30")
-- **Duração** (em minutos: 50)
+- **Hora de fim** (ex: "14:25", 55 minutos após o início)
 - **Turma** (referência à entidade Turmas)
 - **Conteúdo** (referência à entidade Conteúdos)
 - **Ativo** (sim/não)
@@ -830,7 +830,7 @@ O sistema identifica a turma ativa com base no dia e hora atuais.
 
 ### RN12 — Duração da Aula
 
-Cada aula dura **50 minutos**.
+Cada aula usa o horário de início e fim cadastrado para a sala. O padrão é de **55 minutos** (50 minutos de atividade mais 5 minutos finais; por exemplo, 13:30–14:25).
 
 ### RN13 — Notificação nos Últimos 5 Minutos
 
@@ -1066,9 +1066,9 @@ O painel tem **três abas principais**:
 │    Turma 8 — 2º ano                                      │
 │                                                          │
 │  Horários:                                               │
-│    Segunda 14:40 — Turma 7 — Soma (50 min)               │
-│    Terça   14:40 — Turma 4 — Subtração (50 min)          │
-│    Quinta  13:00 — Turma 8 — Formas (50 min)             │
+│    Segunda 14:40–15:35 — Turma 7 — Soma (55 min)         │
+│    Terça   14:40–15:35 — Turma 4 — Subtração (55 min)    │
+│    Quinta  13:00–13:55 — Turma 8 — Formas (55 min)       │
 │                                                          │
 │  [+ Adicionar Horário]                                   │
 │                                                          │
@@ -1086,7 +1086,7 @@ O painel tem **três abas principais**:
 │  ── CONTROLE DA AULA ────────────────────────────────    │
 │                                                          │
 │  Turma ativa: Turma 7 — 3º Ano — Soma                    │
-│  Horário: 13:30 — 14:20 (50 min)                         │
+│  Horário: 13:30 — 14:25 (55 min)                         │
 │  Status: AGUARDANDO INÍCIO                               │
 │                                                          │
 │  Alunos conectados: 12 de 20                             │
@@ -1158,7 +1158,7 @@ Após o início:
 4. **Adicionar horários** informando:
    - Dia da semana
    - Hora de início
-   - Duração (50 minutos)
+   - Hora de fim
    - Turma
    - Conteúdo
 5. Salvar.
@@ -1167,7 +1167,7 @@ Após o início:
 
 ### 13.3 Configurações Gerais
 
-- **Duração padrão da aula:** 50 minutos.
+- **Duração padrão do horário:** 55 minutos (50 minutos de atividade e 5 minutos finais; ajustável definindo o horário de fim).
 - **Tempo de notificação:** 5 minutos antes do fim (padrão).
 - **Backup:** exportar/importar dados.
 

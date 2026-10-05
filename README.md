@@ -34,13 +34,13 @@ As rodadas têm seis perguntas. Ao final, há um desafio de pausa de até 20 seg
 
 ## Como testar sem esperar o horário
 
-1. Admin → **Salas** → crie uma sala (nome, ano, professor, horários, conteúdo) → Salvar.
+1. Admin → **Salas** → crie uma sala (nome, ano, professor, dia, horário de início e de fim, conteúdo) → Salvar.
 2. Admin → **Aula** → escolha a sala → **Abrir sessão**.
 3. Em cada computador/celular, abra o endereço do servidor (localhost no computador servidor ou o IP da rede local nos demais) e cadastre os alunos → tela de espera.
 4. Admin → **Iniciar atividade** → todos recebem a 1ª pergunta ao mesmo tempo.
 5. **Encerrar sessão** → ranking final, histórico e prêmios são salvos.
 
-No horário cadastrado, a sessão abre sozinha e encerra sozinha após 50 minutos.
+Cadastre o dia, o horário de início e o fim de cada aula em **Salas**. O fim padrão fica 55 minutos depois do início (por exemplo, 14:40–15:35), mas pode ser alterado. No início programado, a sessão abre sozinha e encerra no horário de fim configurado.
 
 ## Estrutura
 

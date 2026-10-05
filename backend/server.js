@@ -6,7 +6,7 @@ const { configurarAdmin, confere } = require('./engine/admin');
 const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades } = require('./engine/gerador');
 const { criarDesafio } = require('./engine/desafios');
 const { calcularPontos, ajustarNivel, mensagemErro, premio, nota } = require('./engine/regras');
-const { agora, paraMin, DURACAO_MIN } = require('./agendamento');
+const { agora, paraMin, horaFim, sobrepoe, DURACAO_MIN } = require('./agendamento');
 
 const TOTAL = Number(process.env.TOTAL_PERGUNTAS || 0);
 const PERGUNTAS_POR_RODADA = 6;
@@ -65,10 +65,27 @@ function emitirRanking() {
   emitirPainel();
 }
 
-function abrirSessao(salaId) {
+function fimPrevistoApos(minutos, alinharMinuto = false) {
+  const agoraReal = new Date();
+  const ajuste = alinharMinuto ? agoraReal.getSeconds() * 1000 + agoraReal.getMilliseconds() : 0;
+  return new Date(agoraReal.getTime() + minutos * 60000 - ajuste).toISOString();
+}
+function fimPrevistoDoHorario(hora, minutoAtual = agora().min) {
+  const minutosRestantes = paraMin(horaFim(hora.hora, hora.fim)) - minutoAtual;
+  return fimPrevistoApos(minutosRestantes, true);
+}
+function abrirSessao(salaId, fimPrevistoEm) {
   const ex = get("SELECT * FROM sessoes WHERE sala_id=? AND status!='encerrada'", salaId);
   if (ex) return ex;
-  const id = Number(run('INSERT INTO sessoes(sala_id,aberta_em) VALUES(?,?)', salaId, new Date().toISOString()).lastInsertRowid);
+  if (!fimPrevistoEm) {
+    const t = agora();
+    const horarioAtivo = all('SELECT * FROM horarios WHERE sala_id=? AND dia=?', salaId, t.dia)
+      .find((h) => t.min >= paraMin(h.hora) && t.min < paraMin(horaFim(h.hora, h.fim)));
+    fimPrevistoEm = horarioAtivo
+      ? fimPrevistoDoHorario(horarioAtivo, t.min)
+      : fimPrevistoApos(DURACAO_MIN);
+  }
+  const id = Number(run('INSERT INTO sessoes(sala_id,aberta_em,fim_previsto_em) VALUES(?,?,?)', salaId, new Date().toISOString(), fimPrevistoEm).lastInsertRowid);
   io.emit('estado'); emitirPainel();
   return get('SELECT * FROM sessoes WHERE id=?', id);
 }
@@ -91,13 +108,17 @@ function tick() {
   const t = agora();
   for (const h of all('SELECT * FROM horarios')) {
     const ini = paraMin(h.hora);
-    if (h.dia === t.dia && t.min >= ini && t.min < ini + DURACAO_MIN) {
+    const fim = paraMin(horaFim(h.hora, h.fim));
+    if (h.dia === t.dia && t.min >= ini && t.min < fim) {
       const desde = new Date(Date.now() - (t.min - ini + 1) * 60000).toISOString();
-      if (!get('SELECT 1 x FROM sessoes WHERE sala_id=? AND aberta_em>=?', h.sala_id, desde) && get('SELECT 1 x FROM salas WHERE id=?', h.sala_id)) abrirSessao(h.sala_id);
+      if (!get('SELECT 1 x FROM sessoes WHERE sala_id=? AND aberta_em>=?', h.sala_id, desde) && get('SELECT 1 x FROM salas WHERE id=?', h.sala_id)) {
+        abrirSessao(h.sala_id, fimPrevistoDoHorario(h, t.min));
+      }
     }
   }
   const limite = new Date(Date.now() - DURACAO_MIN * 60000).toISOString();
-  all("SELECT id FROM sessoes WHERE status!='encerrada' AND aberta_em<?", limite).forEach((s) => encerrarSessao(s.id));
+  all("SELECT id FROM sessoes WHERE status!='encerrada' AND ((fim_previsto_em IS NOT NULL AND fim_previsto_em<=?) OR (fim_previsto_em IS NULL AND aberta_em<?))", new Date().toISOString(), limite)
+    .forEach((s) => encerrarSessao(s.id));
 }
 setInterval(tick, 15000); tick();
 setInterval(() => { if (sujo) { sujo = false; emitirRanking(); } }, 5000); // ranking a cada 5 s
@@ -251,15 +272,33 @@ app.post('/api/admin/login', ok((req, res) => {
 }));
 
 const salasCompletas = () => all('SELECT * FROM salas ORDER BY nome').map(({ periodo, dificuldade, ...s }) => ({ ...s,
-  horarios: all('SELECT dia,hora FROM horarios WHERE sala_id=? ORDER BY dia,hora', s.id),
+  horarios: all('SELECT dia,hora,fim FROM horarios WHERE sala_id=? ORDER BY dia,hora', s.id),
   atividades: all('SELECT atividade FROM conteudos WHERE sala_id=?', s.id).map((x) => x.atividade).filter((x) => ATIVIDADES.includes(x)) }));
 function salvarSala(id, b) {
   const { nome, ano, professor, conteudo_maior_dificuldade = null, horarios = [], atividades = [] } = b;
   if (!String(nome || '').trim() || ![2, 3].includes(+ano) || !String(professor || '').trim()) throw new Error('Preencha nome, ano e professor.');
+  const horariosValidos = horarios.filter((h) => h.hora).map((h) => {
+    const fim = h.fim || horaFim(h.hora);
+    if (!Number.isInteger(+h.dia) || +h.dia < 0 || +h.dia > 6 ||
+        !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(h.hora) ||
+        !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(fim) ||
+        paraMin(fim) <= paraMin(h.hora)) {
+      throw new Error('Informe um dia válido e horários de início e fim válidos, com o fim depois do início.');
+    }
+    return { dia: +h.dia, hora: h.hora, fim };
+  });
+  for (let i = 0; i < horariosValidos.length; i++) {
+    for (let j = i + 1; j < horariosValidos.length; j++) {
+      const a = horariosValidos[i], b = horariosValidos[j];
+      if (a.dia === b.dia && sobrepoe(a.hora, a.fim, b.hora, b.fim)) {
+        throw new Error('Os horários da mesma sala não podem se sobrepor.');
+      }
+    }
+  }
   if (id) { run('UPDATE salas SET nome=?,ano=?,professor=?,conteudo_maior_dificuldade=? WHERE id=?', nome.trim(), +ano, professor.trim(), conteudo_maior_dificuldade || null, id);
     ['horarios', 'conteudos'].forEach((t) => run(`DELETE FROM ${t} WHERE sala_id=?`, id)); }
   else id = Number(run('INSERT INTO salas(nome,ano,professor,conteudo_maior_dificuldade) VALUES(?,?,?,?)', nome.trim(), +ano, professor.trim(), conteudo_maior_dificuldade || null).lastInsertRowid);
-  horarios.filter((h) => h.hora).forEach((h) => run('INSERT INTO horarios(sala_id,dia,hora) VALUES(?,?,?)', id, +h.dia, h.hora));
+  horariosValidos.forEach((h) => run('INSERT INTO horarios(sala_id,dia,hora,fim) VALUES(?,?,?,?)', id, h.dia, h.hora, h.fim));
   const listaAtividades = (atividades.length ? atividades : (ATIVIDADES_POR_ANO[+ano] || ATIVIDADES)).filter((a) => ATIVIDADES.includes(a));
   listaAtividades.forEach((a) => run('INSERT INTO conteudos(sala_id,atividade) VALUES(?,?)', id, a));
   return id;
