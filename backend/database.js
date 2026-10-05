@@ -28,8 +28,8 @@ if (caminhoBanco !== caminhoBase && caminhoBanco !== ':memory:') {
   const origem = new DatabaseSync(caminhoBase, { readOnly: true });
   try {
     const sincronizadas = sincronizarCadastros(db, origem);
-    if (sincronizadas.salasImportadas || sincronizadas.horariosImportados || sincronizadas.conteudosImportados) {
-      console.log(`Cadastros sincronizados do banco incluído: ${sincronizadas.salasImportadas} salas, ${sincronizadas.horariosImportados} horários e ${sincronizadas.conteudosImportados} conteúdos.`);
+    if (Object.values(sincronizadas).some(Boolean)) {
+      console.log(`Dados sincronizados do banco incluído: ${sincronizadas.salasImportadas} salas, ${sincronizadas.horariosImportados} horários, ${sincronizadas.conteudosImportados} conteúdos, ${sincronizadas.importacoesHistoricas} relatórios e ${sincronizadas.alunosHistoricos} registros de alunos.`);
     }
   } finally {
     origem.close();

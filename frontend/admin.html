@@ -60,7 +60,7 @@
 
   <section id="aba-rel" class="aba">
     <div class="caixa sem-print"><div class="linha">
-      <select id="r-tipo"><option value="geral">Geral (ranking de todos)</option><option value="sala">Por sala</option><option value="aluno">Por aluno</option><option value="historico">Histórico importado</option></select>
+      <select id="r-tipo"><option value="geral">Geral (ranking de todos)</option><option value="sala">Por sala</option><option value="aluno">Por aluno</option></select>
       <select id="r-alvo"></select><button id="r-ver">Ver</button><button id="r-csv">Exportar CSV</button><button id="r-pdf">Exportar PDF</button></div></div>
     <div id="r-resumo"></div><div id="r-tabela"></div>
   </section>
@@ -232,7 +232,6 @@ async function alvos() {
   const t = $('r-tipo').value; $('r-alvo').style.display = t === 'geral' ? 'none' : '';
   if (t === 'sala') $('r-alvo').innerHTML = salas.map((s) => `<option value="${s.id}">${esc(s.nome)}</option>`).join('');
   if (t === 'aluno') $('r-alvo').innerHTML = (await api('/api/admin/alunos')).map((a) => `<option value="${a.id}">${esc(a.nome)} (${esc(a.sala)})</option>`).join('');
-  if (t === 'historico') $('r-alvo').innerHTML = (await api('/api/admin/importacoes')).map((i) => `<option value="${i.id}">${esc(i.sala)} — ${esc(i.arquivo)} (${i.alunos} alunos)</option>`).join('');
 }
 $('r-tipo').onchange = alvos;
 const url = (csv) => `/api/admin/relatorio/${$('r-tipo').value}?id=${$('r-alvo').value || 0}${csv ? '&csv=1' : ''}`;
@@ -245,18 +244,8 @@ $('r-ver').onclick = async () => {
   const rows = await api(url());
   $('r-resumo').replaceChildren();
   if (!rows.length) return ($('r-tabela').innerHTML = `<p>${$('r-tipo').value === 'aluno' ? 'Esta criança ainda não respondeu perguntas.' : 'Sem dados para este relatório.'}</p>`);
-  if ($('r-tipo').value === 'historico') {
-    const perguntas = rows.reduce((soma, r) => soma + r.perguntas, 0);
-    const pontos = rows.reduce((soma, r) => soma + r.pontos, 0);
-    const comTempo = rows.filter((r) => r.tempo_medio_s != null);
-    const perguntasComTempo = comTempo.reduce((soma, r) => soma + r.perguntas, 0);
-    const tempo = perguntasComTempo ? comTempo.reduce((soma, r) => soma + r.tempo_medio_s * r.perguntas, 0) / perguntasComTempo : null;
-    $('r-resumo').innerHTML = `<h2>Histórico importado — ${esc($('r-alvo').selectedOptions[0]?.textContent || '')}</h2>
-      <div class="resumo-relatorio"><div class="metrica">Alunos<b>${rows.length}</b></div>
-      <div class="metrica">Respostas registradas<b>${perguntas}</b></div>
-      <div class="metrica">Pontos<b>${pontos}</b></div>
-      <div class="metrica">Tempo médio (dados disponíveis)<b>${tempo == null ? '—' : `${tempo.toFixed(1)} s`}</b></div></div>
-      <p>Este arquivo não informa acertos nem respostas individuais; esses dados não foram estimados.</p>`;
+  if (['geral', 'sala'].includes($('r-tipo').value)) {
+    $('r-resumo').innerHTML = '<p>Os registros anteriores mostram os totais disponíveis na planilha; acertos e percentuais sem dados de origem aparecem como —.</p>';
   }
   if ($('r-tipo').value === 'aluno') {
     const perguntas = rows.reduce((soma, r) => soma + r.perguntas, 0);

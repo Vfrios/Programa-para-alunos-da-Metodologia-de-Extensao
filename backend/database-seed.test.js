@@ -30,6 +30,9 @@ function criarBanco(comFim = false) {
       periodo TEXT NOT NULL DEFAULT 'Manhã', dificuldade TEXT NOT NULL DEFAULT 'Básico', conteudo_maior_dificuldade TEXT);
     CREATE TABLE horarios(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, dia INTEGER NOT NULL, hora TEXT NOT NULL${comFim ? ', fim TEXT' : ''});
     CREATE TABLE conteudos(sala_id INTEGER NOT NULL, atividade TEXT NOT NULL, PRIMARY KEY(sala_id,atividade));
+    CREATE TABLE importacoes_sala(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, arquivo TEXT NOT NULL, importado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(sala_id,arquivo));
+    CREATE TABLE alunos_importados(id INTEGER PRIMARY KEY AUTOINCREMENT, importacao_id INTEGER NOT NULL, linha_origem INTEGER NOT NULL,
+      nome TEXT NOT NULL, total_respostas INTEGER NOT NULL, pontos_total INTEGER NOT NULL, tempo_medio_s REAL, UNIQUE(importacao_id,linha_origem));
   `);
   return db;
 }
@@ -41,10 +44,10 @@ test('importa salas, horários e conteúdos do banco incluído sem duplicar em r
   origem.prepare('INSERT INTO conteudos(sala_id,atividade) VALUES(?,?)').run(1, 'soma');
 
   assert.deepEqual(sincronizarCadastros(destino, origem), {
-    salasImportadas: 1, horariosImportados: 1, conteudosImportados: 1
+    salasImportadas: 1, horariosImportados: 1, conteudosImportados: 1, importacoesHistoricas: 0, alunosHistoricos: 0
   });
   assert.deepEqual(sincronizarCadastros(destino, origem), {
-    salasImportadas: 0, horariosImportados: 0, conteudosImportados: 0
+    salasImportadas: 0, horariosImportados: 0, conteudosImportados: 0, importacoesHistoricas: 0, alunosHistoricos: 0
   });
   assert.equal(destino.prepare('SELECT COUNT(*) n FROM salas').get().n, 1);
   assert.equal(destino.prepare('SELECT COUNT(*) n FROM horarios').get().n, 1);
@@ -61,12 +64,40 @@ test('preserva sala remota com ID conflitante e importa as salas faltantes', () 
   destino.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(1, 'Sala remota', 3, 'Docente remoto');
 
   assert.deepEqual(sincronizarCadastros(destino, origem), {
-    salasImportadas: 1, horariosImportados: 0, conteudosImportados: 0
+    salasImportadas: 1, horariosImportados: 0, conteudosImportados: 0, importacoesHistoricas: 0, alunosHistoricos: 0
   });
   assert.equal(destino.prepare('SELECT nome FROM salas WHERE id=1').get().nome, 'Sala remota');
   assert.equal(destino.prepare('SELECT nome FROM salas WHERE id=2').get().nome, 'Sala nova');
   assert.equal(destino.prepare('SELECT COUNT(*) n FROM horarios').get().n, 0);
   assert.equal(destino.prepare('SELECT COUNT(*) n FROM conteudos').get().n, 0);
+  origem.close(); destino.close();
+});
+
+test('leva os dados históricos ao banco Render sem duplicar e só para salas correspondentes', () => {
+  const origem = criarBanco(), destino = criarBanco(true);
+  origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(9, 'Turma A', 3, 'Docente');
+  origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(10, 'Turma B', 2, 'Docente');
+  destino.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(9, 'Turma A', 3, 'Docente');
+  destino.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(10, 'Outra sala', 2, 'Docente');
+  const importacaoId = Number(origem.prepare('INSERT INTO importacoes_sala(sala_id,arquivo,importado_em) VALUES(?,?,?)')
+    .run(9, 'sala.csv', '2026-10-05 12:00:00').lastInsertRowid);
+  origem.prepare(`INSERT INTO alunos_importados
+    (importacao_id,linha_origem,nome,total_respostas,pontos_total,tempo_medio_s) VALUES(?,?,?,?,?,?)`)
+    .run(importacaoId, 2, 'Ana', 100, 9000, 8.5);
+  origem.prepare(`INSERT INTO alunos_importados
+    (importacao_id,linha_origem,nome,total_respostas,pontos_total,tempo_medio_s) VALUES(?,?,?,?,?,?)`)
+    .run(importacaoId, 3, 'Bia', 0, 0, null);
+
+  assert.deepEqual(sincronizarCadastros(destino, origem), {
+    salasImportadas: 0, horariosImportados: 0, conteudosImportados: 0, importacoesHistoricas: 1, alunosHistoricos: 2
+  });
+  assert.deepEqual(sincronizarCadastros(destino, origem), {
+    salasImportadas: 0, horariosImportados: 0, conteudosImportados: 0, importacoesHistoricas: 0, alunosHistoricos: 0
+  });
+  assert.equal(destino.prepare('SELECT COUNT(*) n FROM alunos_importados').get().n, 2);
+  assert.equal(destino.prepare('SELECT COUNT(*) n FROM importacoes_sala').get().n, 1);
+  assert.equal(destino.prepare('SELECT nome FROM salas WHERE id=10').get().nome, 'Outra sala');
+  assert.equal(destino.prepare('SELECT tempo_medio_s FROM alunos_importados WHERE nome=?').get('Bia').tempo_medio_s, null);
   origem.close(); destino.close();
 });
 
@@ -91,7 +122,7 @@ test('inicializar com DB_FILE importa os cadastros do banco que acompanha o depl
     });
     const banco = new DatabaseSync(caminhoBanco, { readOnly: true });
     const base = new DatabaseSync(path.resolve(__dirname, '../database/matematica.db'), { readOnly: true });
-    for (const tabela of ['salas', 'horarios', 'conteudos']) {
+    for (const tabela of ['salas', 'horarios', 'conteudos', 'importacoes_sala', 'alunos_importados']) {
       assert.equal(banco.prepare(`SELECT COUNT(*) n FROM ${tabela}`).get().n,
         base.prepare(`SELECT COUNT(*) n FROM ${tabela}`).get().n);
     }

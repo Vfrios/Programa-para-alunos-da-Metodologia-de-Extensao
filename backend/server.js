@@ -41,9 +41,15 @@ const ranking = (sessaoId) => all(`SELECT a.id, a.nome,
     COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id AND d.sessao_id=a.sessao_id),0) AS pontos,
     COUNT(r.id) AS respostas
   FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sessao_id=? GROUP BY a.id ORDER BY pontos DESC, a.id`, sessaoId);
-const rankingGeral = () => all(`SELECT a.id, a.nome, sa.nome AS sala,
-    COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
-  FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id GROUP BY a.id ORDER BY pontos DESC, a.id LIMIT 50`);
+const rankingGeral = () => all(`SELECT id, nome, sala, pontos FROM (
+    SELECT a.id, a.nome, sa.nome AS sala,
+      COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
+    FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id GROUP BY a.id
+    UNION ALL
+    SELECT NULL, ai.nome, sa.nome, ai.pontos_total
+    FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
+    JOIN salas sa ON sa.id=i.sala_id
+  ) ORDER BY pontos DESC, nome LIMIT 50`);
 const terminaram = (sid) => get('SELECT COUNT(DISTINCT aluno_id) n FROM respostas WHERE sessao_id=?', sid).n;
 const primeira = () => abertas().sort((x, y) => (x.status === 'aguardando' ? -1 : 1) - (y.status === 'aguardando' ? -1 : 1))[0];
 
@@ -342,9 +348,6 @@ app.post('/api/admin/sessoes/:id/iniciar', auth, ok((req, res) => {
 app.post('/api/admin/sessoes/:id/encerrar', auth, ok((req, res) => { encerrarSessao(+req.params.id); res.json({ ok: true }); }));
 
 app.get('/api/admin/alunos', auth, ok((q, res) => res.json(all('SELECT a.id, a.nome, sa.nome AS sala FROM alunos a JOIN salas sa ON sa.id=a.sala_id ORDER BY a.id DESC LIMIT 300'))));
-app.get('/api/admin/importacoes', auth, ok((q, res) => res.json(all(`SELECT i.id, i.arquivo, i.importado_em, s.nome AS sala,
-    COUNT(a.id) AS alunos FROM importacoes_sala i JOIN salas s ON s.id=i.sala_id
-    LEFT JOIN alunos_importados a ON a.importacao_id=i.id GROUP BY i.id ORDER BY i.importado_em DESC, i.id DESC`))));
 app.get('/api/admin/ranking', auth, ok((req, res) => {
   const s = get('SELECT id FROM sessoes WHERE sala_id=? ORDER BY id DESC', +req.query.sala_id);
   res.json(req.query.sala_id ? (s ? ranking(s.id) : []) : rankingGeral());
@@ -358,21 +361,30 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       ROUND(100.0 * SUM(correta) / COUNT(*), 1) AS percentual_acerto,
       SUM(pontos) AS pontos_total, ROUND(AVG(tempo),1) AS tempo_medio_s
     FROM respostas WHERE aluno_id=? GROUP BY atividade ORDER BY atividade`, id);
-  else if (req.params.tipo === 'historico') rows = all(`SELECT a.nome AS aluno, a.total_respostas AS perguntas,
-      a.pontos_total AS pontos, a.tempo_medio_s
-    FROM alunos_importados a WHERE a.importacao_id=? ORDER BY a.linha_origem`, id);
-  else if (req.params.tipo === 'sala') rows = all(`SELECT a.nome AS aluno, COUNT(r.id) AS perguntas,
-      COALESCE(SUM(r.correta),0) AS acertos,
-      CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
-      COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos_total,
-      ROUND(AVG(r.tempo),1) AS tempo_medio_s
-    FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id ORDER BY pontos_total DESC`, id);
-  else rows = all(`SELECT a.nome AS aluno, sa.nome AS sala, COUNT(r.id) AS perguntas,
-      COALESCE(SUM(r.correta),0) AS acertos,
-      CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
-      COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
-    FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id
-    GROUP BY a.id ORDER BY pontos DESC, a.nome LIMIT 50`);
+  else if (req.params.tipo === 'sala') rows = all(`SELECT aluno, perguntas, acertos, percentual_acerto, pontos_total, tempo_medio_s
+    FROM (
+      SELECT a.nome AS aluno, COUNT(r.id) AS perguntas, COALESCE(SUM(r.correta),0) AS acertos,
+        CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+        COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos_total,
+        ROUND(AVG(r.tempo),1) AS tempo_medio_s
+      FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id
+      UNION ALL
+      SELECT ai.nome, ai.total_respostas, NULL, NULL, ai.pontos_total, ai.tempo_medio_s
+      FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=?
+    ) ORDER BY pontos_total DESC, aluno`, id, id);
+  else rows = all(`SELECT aluno, sala, perguntas, acertos, percentual_acerto, pontos
+    FROM (
+      SELECT a.nome AS aluno, sa.nome AS sala, COUNT(r.id) AS perguntas,
+        COALESCE(SUM(r.correta),0) AS acertos,
+        CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+        COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
+      FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id
+      GROUP BY a.id
+      UNION ALL
+      SELECT ai.nome, s.nome, ai.total_respostas, NULL, NULL, ai.pontos_total
+      FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
+      JOIN salas s ON s.id=i.sala_id
+    ) ORDER BY pontos DESC, aluno LIMIT 50`);
   if (req.query.csv) { res.type('text/csv').send(csv(rows)); } else res.json(rows);
 }));
 

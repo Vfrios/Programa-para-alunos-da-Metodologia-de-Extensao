@@ -36,7 +36,7 @@ No painel do professor, cada sessão em andamento mostra o tempo decorrido desde
 
 Cada conteúdo possui 30 modelos diferentes de enunciado. O sistema os embaralha e percorre os 30 antes de repetir um modelo para a mesma criança e conteúdo; os números, sequências, figuras e objetos também continuam variando conforme a atividade e o nível.
 
-Relatórios antigos importados aparecem em **Relatórios → Histórico importado** e os nomes ficam disponíveis como sugestões de cadastro quando uma aula da mesma sala é aberta. Arquivos que contêm somente respostas totais, pontos e tempo médio não geram acertos ou respostas individuais; médias de tempo ausentes são preservadas como indisponíveis.
+Os dados agregados das planilhas entram nos relatórios **Geral** e **Por sala**, junto com os dados das atividades atuais. Eles estão no banco incluído no deploy e também são sincronizados para um banco remoto configurado por `DB_FILE` na inicialização do Render, sem duplicar registros. Arquivos que trazem somente totais, pontos e tempo médio não geram acertos ou respostas individuais; médias de tempo ausentes permanecem indisponíveis.
 
 ## Como testar sem esperar o horário
 
