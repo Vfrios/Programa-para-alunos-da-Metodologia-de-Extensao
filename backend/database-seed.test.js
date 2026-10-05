@@ -7,6 +7,22 @@ const os = require('node:os');
 const path = require('node:path');
 const { sincronizarCadastros } = require('./database-seed');
 
+test('guarda relatórios importados separados das respostas da aplicação', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(fs.readFileSync(path.resolve(__dirname, '../database/schema.sql'), 'utf8'));
+  const salaId = Number(db.prepare('INSERT INTO salas(nome,ano,professor) VALUES(?,?,?)').run('Turma A', 2, 'Docente').lastInsertRowid);
+  const importacaoId = Number(db.prepare('INSERT INTO importacoes_sala(sala_id,arquivo) VALUES(?,?)').run(salaId, 'relatorio.csv').lastInsertRowid);
+  const inserir = db.prepare(`INSERT INTO alunos_importados
+    (importacao_id,linha_origem,nome,total_respostas,pontos_total,tempo_medio_s) VALUES(?,?,?,?,?,?)`);
+  inserir.run(importacaoId, 2, 'Ana', 10, 900, 8.5);
+  inserir.run(importacaoId, 3, 'Bia', 0, 0, null);
+
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM alunos_importados WHERE importacao_id=?').get(importacaoId).n, 2);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM respostas').get().n, 0);
+  assert.equal(db.prepare('SELECT tempo_medio_s FROM alunos_importados WHERE linha_origem=3').get().tempo_medio_s, null);
+  db.close();
+});
+
 function criarBanco(comFim = false) {
   const db = new DatabaseSync(':memory:');
   db.exec(`

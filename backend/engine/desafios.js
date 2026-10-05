@@ -8,18 +8,24 @@ function tipoDoDesafio(rodada) {
   return TIPOS_DESAFIO[(rodada - 1) % TIPOS_DESAFIO.length];
 }
 
-function criarDesafio(rodada, nivel = 1) {
+function criarDesafio(rodada, nivel = 1, ano = 3) {
   const tipo = tipoDoDesafio(rodada);
-  const n = Math.max(1, Math.min(5, Math.floor(Number(nivel) || 1)));
+  const nivelMaximo = Number(ano) === 2 ? 2 : 5;
+  const n = Math.max(1, Math.min(nivelMaximo, Math.floor(Number(nivel) || 1)));
   const limite = LIMITES[n];
 
   if (tipo === 'memoria') {
-    return { tipo, nivel: n, texto: 'Encontre os três pares de emojis!', resposta: 'concluido' };
+    const pares = Number(ano) === 2 ? 2 : 3;
+    return { tipo, nivel: n, pares, texto: `Encontre os ${pares} pares de emojis!`, resposta: 'concluido' };
   }
   if (tipo === 'calculo') {
-    const x = rnd(1, limite), y = rnd(1, limite), resposta = String(x + y);
+    const limiteCalculo = Number(ano) === 2 ? Math.min(limite, 5) : limite;
+    const x = rnd(1, limiteCalculo), y = rnd(1, limiteCalculo), resposta = String(x + y);
     const opcoes = new Set([resposta]);
-    while (opcoes.size < 3) opcoes.add(String(Math.max(0, Number(resposta) + rnd(-5, 5))));
+    while (opcoes.size < 3) {
+      const alternativa = Math.max(0, Number(resposta) + rnd(-5, 5));
+      opcoes.add(String(Number(ano) === 2 ? Math.min(10, alternativa) : alternativa));
+    }
     return { tipo, nivel: n, texto: `Resolva no tempo: ${x} + ${y} = ?`, resposta, opcoes: mix([...opcoes]) };
   }
   if (tipo === 'sequencia') {

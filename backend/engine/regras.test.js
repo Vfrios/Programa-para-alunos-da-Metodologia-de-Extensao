@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { calcularPontos, ajustarNivel } = require('./regras');
-const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades } = require('./gerador');
+const { ATIVIDADES, ATIVIDADES_POR_ANO, MODELOS_ENUNCIADO, gerarPergunta, criarSorteadorDeAtividades, criarSorteadorDeModelos } = require('./gerador');
 
 function simularPerguntas(respostas) {
   const aleatorioOriginal = Math.random;
@@ -105,7 +105,7 @@ test('sequencias variam os passos e apresentam a opcao correta', () => {
   Math.random = () => numerosAleatorios[indiceAleatorio++ % numerosAleatorios.length];
   try {
     const sequencia = gerarPergunta('sequencia', 1);
-    assert.equal(sequencia.texto, 'Complete a sequência: 4, __, 6, 7');
+    assert.equal(sequencia.texto, 'Complete: 4, __, 6, 7');
     assert.equal(sequencia.resposta, '5');
     assert.equal(sequencia.tipo, 'clicar');
     assert.ok(sequencia.opcoes.includes(sequencia.resposta));
@@ -132,6 +132,48 @@ test('sorteio percorre todos os conteudos antes de repetir atividade', () => {
   assert.deepEqual(new Set(sorteados.slice(0, 3)), new Set(conteudos));
   assert.deepEqual(new Set(sorteados.slice(3, 6)), new Set(conteudos));
   assert.deepEqual(new Set(sorteados.slice(6, 9)), new Set(conteudos));
+});
+
+test('modelos de enunciado percorrem opções diferentes antes de repetir', () => {
+  const sortear = criarSorteadorDeModelos();
+  const modelos = ['equacao', 'historia', 'imagem'];
+  const primeiraVolta = modelos.map(() => sortear(modelos));
+  const segundaVolta = modelos.map(() => sortear(modelos));
+
+  assert.deepEqual(new Set(primeiraVolta), new Set(modelos));
+  assert.deepEqual(new Set(segundaVolta), new Set(modelos));
+  assert.notEqual(primeiraVolta.at(-1), segundaVolta[0]);
+});
+
+test('cada conteúdo tem 30 enunciados diferentes antes de repetir um modelo', () => {
+  for (const modelos of Object.values(MODELOS_ENUNCIADO)) {
+    assert.equal(modelos.length, 30);
+    assert.equal(new Set(modelos).size, 30);
+    const sortear = criarSorteadorDeModelos();
+    const primeiraVolta = Array.from({ length: 30 }, () => sortear(modelos));
+    const segundaVolta = Array.from({ length: 30 }, () => sortear(modelos));
+    assert.equal(new Set(primeiraVolta).size, 30);
+    assert.equal(new Set(segundaVolta).size, 30);
+    assert.notEqual(primeiraVolta.at(-1), segundaVolta[0]);
+  }
+});
+
+test('cada pergunta gerada percorre 30 enunciados distintos por conteúdo', () => {
+  const aleatorioOriginal = Math.random;
+  let semente = 137;
+  Math.random = () => {
+    semente = (semente * 16807) % 2147483647;
+    return (semente - 1) / 2147483646;
+  };
+  try {
+    for (const atividade of ATIVIDADES) {
+      const sortearModelo = criarSorteadorDeModelos();
+      const perguntas = Array.from({ length: 30 }, () => gerarPergunta(atividade, 1, sortearModelo));
+      assert.equal(new Set(perguntas.map((pergunta) => pergunta.texto)).size, 30, atividade);
+    }
+  } finally {
+    Math.random = aleatorioOriginal;
+  }
 });
 
 test('todos os geradores produzem resposta válida e alternativas sem repetição', () => {

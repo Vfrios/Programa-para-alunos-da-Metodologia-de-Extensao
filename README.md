@@ -30,7 +30,13 @@ O serviço usa uma única instância. No plano gratuito não há disco persisten
 
 Se `DB_FILE` estiver definido no Render, as salas, horários e conteúdos do banco incluído no repositório são importados na inicialização para esse banco, sem duplicar itens nem substituir salas remotas com IDs conflitantes. Para publicar salas novas criadas localmente, inclua o banco atualizado em um commit enviado à branch configurada no Render; o app não sincroniza automaticamente as alterações do SQLite de volta ao computador.
 
-As rodadas têm seis perguntas. Ao final, há um desafio de pausa de até 20 segundos: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking.
+As rodadas têm seis perguntas. Ao final, há um desafio de pausa: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking. Para o 2º ano, os desafios usam níveis mais simples, memória com dois pares e 30 segundos; para o 3º ano, permanecem três pares e 20 segundos.
+
+No painel do professor, cada sessão em andamento mostra o tempo decorrido desde o início da atividade. Os relatórios por criança incluem perguntas respondidas, acertos, percentual médio de acerto, pontos e desempenho por conteúdo.
+
+Cada conteúdo possui 30 modelos diferentes de enunciado. O sistema os embaralha e percorre os 30 antes de repetir um modelo para a mesma criança e conteúdo; os números, sequências, figuras e objetos também continuam variando conforme a atividade e o nível.
+
+Relatórios antigos importados aparecem em **Relatórios → Histórico importado** e os nomes ficam disponíveis como sugestões de cadastro quando uma aula da mesma sala é aberta. Arquivos que contêm somente respostas totais, pontos e tempo médio não geram acertos ou respostas individuais; médias de tempo ausentes são preservadas como indisponíveis.
 
 ## Como testar sem esperar o horário
 

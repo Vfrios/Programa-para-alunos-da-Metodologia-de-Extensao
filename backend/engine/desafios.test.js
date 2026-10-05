@@ -25,3 +25,29 @@ test('todos os desafios geram resposta válida e opções distintas no nível do
     }
   }
 });
+
+test('os desafios do 2º ano limitam o nível e reduzem a memória para dois pares', () => {
+  for (let rodada = 1; rodada <= TIPOS_DESAFIO.length; rodada++) {
+    const desafio = criarDesafio(rodada, 5, 2);
+    assert.equal(desafio.nivel, 2);
+    if (desafio.tipo === 'memoria') {
+      assert.equal(desafio.pares, 2);
+      assert.match(desafio.texto, /2 pares/);
+    }
+  }
+});
+
+test('os desafios do 3º ano mantêm o nível e os três pares de memória', () => {
+  const desafio = criarDesafio(1, 5, 3);
+  assert.equal(desafio.nivel, 5);
+  assert.equal(desafio.pares, 3);
+});
+
+test('os desafios numéricos do 2º ano usam valores de até dez', () => {
+  for (const rodada of [2, 3, 4, 5]) {
+    const desafio = criarDesafio(rodada, 5, 2);
+    const numeros = [...desafio.texto.matchAll(/\d+/g)].map(([numero]) => Number(numero));
+    const opcoes = (desafio.opcoes || []).map(Number).filter(Number.isFinite);
+    assert.ok([...numeros, ...opcoes].every((numero) => numero <= 10));
+  }
+});

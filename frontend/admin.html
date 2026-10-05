@@ -18,8 +18,12 @@
   .linha{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
   .aba{display:none}.aba.ativa{display:block}
   table{border-collapse:collapse;width:100%}th,td{border:1px solid var(--grade);padding:4px 8px;text-align:left}th{background:var(--grade)}
+  .timer{font-size:1.2rem}.resumo-relatorio{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
+  .metrica{background:#fff;border:2px solid var(--grade);border-radius:10px;padding:10px}.metrica b{display:block;font-size:1.4rem}
+  .destaque-relatorio{background:#fff6cf;border-radius:10px;padding:10px;margin:12px 0}
   #erro{color:#c0392b;font-weight:600}
-  @media print{header,.sem-print{display:none}}
+  @media print{header,.sem-print{display:none}main{max-width:none;padding:0}.caixa,.item{box-shadow:none}}
+  @media(max-width:600px){#r-tabela{overflow-x:auto}table{min-width:600px}}
 </style>
 </head>
 <body>
@@ -56,9 +60,9 @@
 
   <section id="aba-rel" class="aba">
     <div class="caixa sem-print"><div class="linha">
-      <select id="r-tipo"><option value="geral">Geral (ranking de todos)</option><option value="sala">Por sala</option><option value="aluno">Por aluno</option></select>
+      <select id="r-tipo"><option value="geral">Geral (ranking de todos)</option><option value="sala">Por sala</option><option value="aluno">Por aluno</option><option value="historico">Histórico importado</option></select>
       <select id="r-alvo"></select><button id="r-ver">Ver</button><button id="r-csv">Exportar CSV</button><button id="r-pdf">Exportar PDF</button></div></div>
-    <div id="r-tabela"></div>
+    <div id="r-resumo"></div><div id="r-tabela"></div>
   </section>
 </main></div>
 
@@ -109,9 +113,25 @@ function pintarSessoes(p) {
   $('sessoes').innerHTML = p.map((s) => `<div class="item"><h3>${esc(s.sala)} — ${s.status === 'aguardando' ? '⏳ aguardando início' : '▶️ em andamento'}</h3>
     <p>Conectados: <b>${s.conectados}</b> · Cadastrados: ${s.alunos} · Terminaram: <b>${s.terminaram}</b></p>
     <p><small>Início: ${s.iniciada_em ? new Date(s.iniciada_em).toLocaleString('pt-BR') : (s.aberta_em ? new Date(s.aberta_em).toLocaleString('pt-BR') : '—')} · Fim: ${s.encerrada_em ? new Date(s.encerrada_em).toLocaleString('pt-BR') : '—'}</small></p>
+    ${s.status === 'iniciada' && s.iniciada_em ? `<p class="timer">Tempo decorrido: <b data-timer-inicio="${esc(s.iniciada_em)}">00:00:00</b></p>` : ''}
     <div class="linha">${s.status === 'aguardando' ? `<button data-ini="${s.id}">▶ Iniciar atividade</button>` : ''}<button data-fim="${s.id}">⏹ Encerrar sessão</button></div>
     <ol>${s.ranking.map((r) => `<li>${esc(r.nome)} — <b>${r.pontos}</b> pts</li>`).join('')}</ol></div>`).join('') || '<p>Nenhuma sessão aberta. Escolha uma sala e clique em “Abrir sessão”.</p>';
+  atualizarTimers();
 }
+function formatarDuracao(milissegundos) {
+  const total = Math.max(0, Math.floor(milissegundos / 1000));
+  const horas = Math.floor(total / 3600);
+  const minutos = Math.floor((total % 3600) / 60);
+  const segundos = total % 60;
+  return [horas, minutos, segundos].map((parte) => String(parte).padStart(2, '0')).join(':');
+}
+function atualizarTimers() {
+  document.querySelectorAll('[data-timer-inicio]').forEach((timer) => {
+    const inicio = Date.parse(timer.dataset.timerInicio);
+    timer.textContent = Number.isFinite(inicio) ? formatarDuracao(Date.now() - inicio) : 'Horário indisponível';
+  });
+}
+setInterval(atualizarTimers, 1000);
 $('sessoes').onclick = async (e) => {
   const d = e.target.dataset; if (d.ini) await api(`/api/admin/sessoes/${d.ini}/iniciar`, 'POST');
   if (d.fim && confirm('Encerrar a sessão agora?')) await api(`/api/admin/sessoes/${d.fim}/encerrar`, 'POST');
@@ -212,13 +232,55 @@ async function alvos() {
   const t = $('r-tipo').value; $('r-alvo').style.display = t === 'geral' ? 'none' : '';
   if (t === 'sala') $('r-alvo').innerHTML = salas.map((s) => `<option value="${s.id}">${esc(s.nome)}</option>`).join('');
   if (t === 'aluno') $('r-alvo').innerHTML = (await api('/api/admin/alunos')).map((a) => `<option value="${a.id}">${esc(a.nome)} (${esc(a.sala)})</option>`).join('');
+  if (t === 'historico') $('r-alvo').innerHTML = (await api('/api/admin/importacoes')).map((i) => `<option value="${i.id}">${esc(i.sala)} — ${esc(i.arquivo)} (${i.alunos} alunos)</option>`).join('');
 }
 $('r-tipo').onchange = alvos;
 const url = (csv) => `/api/admin/relatorio/${$('r-tipo').value}?id=${$('r-alvo').value || 0}${csv ? '&csv=1' : ''}`;
+const TITULOS_RELATORIO = {
+  atividade: 'Conteúdo', aluno: 'Criança', sala: 'Turma', perguntas: 'Perguntas',
+  acertos: 'Acertos', percentual_acerto: 'Acerto (%)', pontos_total: 'Pontos',
+  pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)'
+};
 $('r-ver').onclick = async () => {
-  const rows = await api(url()); if (!rows.length) return ($('r-tabela').innerHTML = '<p>Sem dados.</p>');
+  const rows = await api(url());
+  $('r-resumo').replaceChildren();
+  if (!rows.length) return ($('r-tabela').innerHTML = `<p>${$('r-tipo').value === 'aluno' ? 'Esta criança ainda não respondeu perguntas.' : 'Sem dados para este relatório.'}</p>`);
+  if ($('r-tipo').value === 'historico') {
+    const perguntas = rows.reduce((soma, r) => soma + r.perguntas, 0);
+    const pontos = rows.reduce((soma, r) => soma + r.pontos, 0);
+    const comTempo = rows.filter((r) => r.tempo_medio_s != null);
+    const perguntasComTempo = comTempo.reduce((soma, r) => soma + r.perguntas, 0);
+    const tempo = perguntasComTempo ? comTempo.reduce((soma, r) => soma + r.tempo_medio_s * r.perguntas, 0) / perguntasComTempo : null;
+    $('r-resumo').innerHTML = `<h2>Histórico importado — ${esc($('r-alvo').selectedOptions[0]?.textContent || '')}</h2>
+      <div class="resumo-relatorio"><div class="metrica">Alunos<b>${rows.length}</b></div>
+      <div class="metrica">Respostas registradas<b>${perguntas}</b></div>
+      <div class="metrica">Pontos<b>${pontos}</b></div>
+      <div class="metrica">Tempo médio (dados disponíveis)<b>${tempo == null ? '—' : `${tempo.toFixed(1)} s`}</b></div></div>
+      <p>Este arquivo não informa acertos nem respostas individuais; esses dados não foram estimados.</p>`;
+  }
+  if ($('r-tipo').value === 'aluno') {
+    const perguntas = rows.reduce((soma, r) => soma + r.perguntas, 0);
+    const acertos = rows.reduce((soma, r) => soma + r.acertos, 0);
+    const pontos = rows.reduce((soma, r) => soma + r.pontos_total, 0);
+    const percentual = perguntas ? `${(100 * acertos / perguntas).toFixed(1)}%` : '—';
+    const menorAproveitamento = [...rows].sort((a, b) => a.percentual_acerto - b.percentual_acerto)[0];
+    const nomeAluno = $('r-alvo').selectedOptions[0]?.textContent || 'Criança selecionada';
+    $('r-resumo').innerHTML = `<h2>Relatório de ${esc(nomeAluno)}</h2><p>Desempenho acumulado por conteúdo</p><div class="resumo-relatorio">
+      <div class="metrica">Perguntas respondidas<b>${perguntas}</b></div>
+      <div class="metrica">Respostas certas<b>${acertos} de ${perguntas}</b></div>
+      <div class="metrica">Média de acerto<b>${percentual}</b></div>
+      <div class="metrica">Pontos nas perguntas<b>${pontos}</b></div>
+    </div>${menorAproveitamento ? `<p class="destaque-relatorio">Conteúdo para reforçar: <b>${esc(NOMES[menorAproveitamento.atividade] || menorAproveitamento.atividade)}</b> (${menorAproveitamento.percentual_acerto}% de acerto)</p>` : ''}`;
+  }
   const k = Object.keys(rows[0]);
-  $('r-tabela').innerHTML = `<table><tr>${k.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${rows.map((r) => `<tr>${k.map((c) => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</table>`;
+  const valor = (coluna, linha) => {
+    if (coluna === 'atividade') return NOMES[linha[coluna]] || linha[coluna];
+    if (linha[coluna] == null) return '—';
+    if (coluna === 'percentual_acerto') return `${linha[coluna]}%`;
+    return linha[coluna];
+  };
+  $('r-tabela').innerHTML = `<table><thead><tr>${k.map((c) => `<th>${esc(TITULOS_RELATORIO[c] || c)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>${k.map((c) => `<td>${esc(valor(c, r))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 };
 $('r-csv').onclick = async () => {
   const r = await fetch(url(true), { headers: { 'x-token': token } }); const a = document.createElement('a');

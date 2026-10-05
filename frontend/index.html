@@ -45,6 +45,7 @@
   #pausa-contagem{font-size:1.5rem;font-weight:700}
   #memoria-pares{font-size:1.3rem;font-weight:800}
   #tabuleiro-memoria{display:grid;grid-template-columns:repeat(3,min(18vw,82px));gap:8px;justify-content:center;margin:10px 0}
+  #tabuleiro-memoria.dois-pares{grid-template-columns:repeat(2,min(18vw,82px))}
   #tabuleiro-memoria button{width:100%;aspect-ratio:1;padding:0;font-size:2rem}
   #tabuleiro-memoria button.virada{background:#fff6cf}
   #tabuleiro-memoria button.par-encontrado{background:var(--certo);color:#fff}
@@ -85,6 +86,7 @@
     #pausa-personagem{font-size:3rem}
     #t-pausa p{margin:4px 0}
     #tabuleiro-memoria{grid-template-columns:repeat(3,64px);gap:6px;margin:4px 0}
+    #tabuleiro-memoria.dois-pares{grid-template-columns:repeat(2,64px)}
     #tabuleiro-memoria button{font-size:1.6rem;border-width:2px;border-radius:10px}
     #pausa-contagem{font-size:1.1rem}
   }
@@ -98,7 +100,8 @@
     <div id="t-fechado" class="tela" style="text-align:center"><h2>Ainda não começou.</h2><p style="font-size:1.5rem">Aguarde a sua aula! 🕒</p></div>
 
     <div id="t-cadastro" class="tela">
-      <h2>Como você se chama?</h2><input id="nome" maxlength="30" autocomplete="off">
+      <h2>Como você se chama?</h2><input id="nome" maxlength="30" autocomplete="off" list="nomes-sugeridos"><datalist id="nomes-sugeridos"></datalist>
+      <p id="dica-nomes" hidden>Se o seu nome aparecer na lista, selecione-o.</p>
       <h2>Quantos anos você tem?</h2><div class="opcoes" id="idades"></div>
       <p style="text-align:center"><button id="b-entrar" disabled>Entrar</button></p>
     </div>
@@ -122,16 +125,9 @@
       <div id="pausa-personagem" aria-hidden="true">🤖</div>
       <h2 id="pausa-titulo">Desafio-relâmpago</h2>
       <p id="pausa-instrucao">Resolva o desafio antes da próxima rodada.</p>
-      <p>Resolva em até 20 segundos. Cada desafio vale 50 pontos.</p>
+      <p id="pausa-tempo">Resolva em até 20 segundos. Cada desafio vale 50 pontos.</p>
       <div id="memoria-pares" role="status" aria-live="polite">Pares: 0 de 3</div>
-      <div id="tabuleiro-memoria" role="group" aria-label="Jogo da memória" hidden>
-        <button type="button" data-carta="0" aria-label="Carta 1, fechada">?</button>
-        <button type="button" data-carta="1" aria-label="Carta 2, fechada">?</button>
-        <button type="button" data-carta="2" aria-label="Carta 3, fechada">?</button>
-        <button type="button" data-carta="3" aria-label="Carta 4, fechada">?</button>
-        <button type="button" data-carta="4" aria-label="Carta 5, fechada">?</button>
-        <button type="button" data-carta="5" aria-label="Carta 6, fechada">?</button>
-      </div>
+      <div id="tabuleiro-memoria" role="group" aria-label="Jogo da memória" hidden></div>
       <div id="pausa-opcoes" class="opcoes" hidden></div>
       <div id="pausa-contagem" role="status" aria-live="polite"></div>
     </div>
@@ -212,20 +208,29 @@ function pararJogoMemoria() {
   desenharCartasMemoria();
 }
 
-function iniciarJogoMemoria() {
+function iniciarJogoMemoria(totalPares = 3) {
   pararJogoMemoria();
   let pacote = Math.floor(Math.random() * PACOTES_MEMORIA.length);
   if (pacote === pacoteMemoriaAnterior) {
     pacote = (pacote + 1 + Math.floor(Math.random() * (PACOTES_MEMORIA.length - 1))) % PACOTES_MEMORIA.length;
   }
   pacoteMemoriaAnterior = pacote;
-  cartasMemoria = [...PACOTES_MEMORIA[pacote], ...PACOTES_MEMORIA[pacote]];
+  const imagens = PACOTES_MEMORIA[pacote].slice(0, totalPares);
+  cartasMemoria = [...imagens, ...imagens];
   for (let i = cartasMemoria.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [cartasMemoria[i], cartasMemoria[j]] = [cartasMemoria[j], cartasMemoria[i]];
   }
+  $('tabuleiro-memoria').replaceChildren(...cartasMemoria.map((_, indice) => {
+    const botao = document.createElement('button');
+    botao.type = 'button'; botao.dataset.carta = indice;
+    botao.setAttribute('aria-label', `Carta ${indice + 1}, fechada`);
+    botao.textContent = '?';
+    return botao;
+  }));
+  $('tabuleiro-memoria').classList.toggle('dois-pares', totalPares === 2);
   cartasViradas = []; paresMemoria = []; jogoMemoriaAtivo = true;
-  $('memoria-pares').textContent = 'Pares: 0 de 3';
+  $('memoria-pares').textContent = `Pares: 0 de ${totalPares}`;
   desenharCartasMemoria();
 }
 
@@ -239,9 +244,10 @@ $('tabuleiro-memoria').onclick = (e) => {
   const [primeira, segunda] = cartasViradas;
   if (cartasMemoria[primeira] === cartasMemoria[segunda]) {
     paresMemoria.push(primeira, segunda); cartasViradas = [];
-    const totalPares = paresMemoria.length / 2;
-    $('memoria-pares').textContent = totalPares === 3 ? 'Você encontrou todos os pares!' : `Pares: ${totalPares} de 3`;
-    if (totalPares === 3) {
+    const paresEncontrados = paresMemoria.length / 2;
+    const totalPares = cartasMemoria.length / 2;
+    $('memoria-pares').textContent = paresEncontrados === totalPares ? 'Você encontrou todos os pares!' : `Pares: ${paresEncontrados} de ${totalPares}`;
+    if (paresEncontrados === totalPares) {
       jogoMemoriaAtivo = false;
       responderDesafio('concluido');
     }
@@ -258,6 +264,10 @@ async function iniciarPausa() {
   if (pausaTimer) clearInterval(pausaTimer);
   pararJogoMemoria();
   desafioAtual = null; desafioResolvido = false; desafioEnviando = false;
+  q = null; travado = false; digitado = '';
+  $('a-digitar').style.display = 'none'; $('a-clicar').style.display = 'none'; $('a-arrastar').style.display = 'none';
+  $('a-clicar').replaceChildren(); $('chips').replaceChildren(); $('alvo').textContent = '?';
+  $('visor').textContent = '';
   $('tabuleiro-memoria').hidden = true; $('pausa-opcoes').hidden = true; $('pausa-opcoes').replaceChildren();
   $('memoria-pares').hidden = true; $('pausa-instrucao').textContent = 'Resolva o desafio antes da próxima rodada.';
   $('pausa-contagem').textContent = 'Preparando o desafio...'; mostrar('t-pausa');
@@ -268,10 +278,11 @@ async function iniciarPausa() {
     if (r.concluido) return proxima();
     desafioAtual = r;
     restante = r.tempoRestante ?? r.tempoLimite ?? 20;
+    $('pausa-tempo').textContent = `Resolva em até ${r.tempoLimite} segundos. Cada desafio vale 50 pontos.`;
     $('pausa-instrucao').textContent = r.texto;
     if (r.tipo === 'memoria') {
       $('tabuleiro-memoria').hidden = false; $('memoria-pares').hidden = false;
-      iniciarJogoMemoria();
+      iniciarJogoMemoria(r.pares || 3);
     } else {
       $('pausa-opcoes').hidden = false;
       r.opcoes.forEach((opcao) => {
@@ -284,13 +295,13 @@ async function iniciarPausa() {
   } catch (e) {
     $('pausa-instrucao').textContent = 'Não foi possível carregar o desafio. A próxima rodada começará em instantes.';
   }
-  $('pausa-contagem').textContent = `Próxima rodada em ${restante} segundos`;
+  $('pausa-contagem').textContent = `Tempo restante: ${restante} segundos`;
   pausaTimer = setInterval(() => {
     restante--;
     if (restante <= 0) {
       clearInterval(pausaTimer); pausaTimer = null; pararJogoMemoria();
       responderDesafio('__timeout__').finally(() => proxima());
-    } else $('pausa-contagem').textContent = `Próxima rodada em ${restante} segundos`;
+    } else $('pausa-contagem').textContent = `Tempo restante: ${restante} segundos`;
   }, 1000);
 }
 
@@ -329,6 +340,11 @@ async function init() {
   const salvo = JSON.parse(localStorage.getItem('aluno') || 'null');
   const e = await api('/api/estado' + (salvo ? '?alunoId=' + salvo.id : ''));
   if (e.aluno) { aluno = e.aluno; return entrar(e.status); }
+  const sugestoes = [...new Map((e.nomesSugeridos || []).map((nome) => [nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR'), nome])).values()];
+  $('dica-nomes').hidden = sugestoes.length === 0;
+  $('nomes-sugeridos').replaceChildren(...sugestoes.map((nome) => {
+    const opcao = document.createElement('option'); opcao.value = nome; return opcao;
+  }));
   localStorage.removeItem('aluno'); aluno = null; encerrada = false;
   $('lado').hidden = true; $('main').classList.remove('com-lado'); $('pontos').hidden = true; total = 0;
   mostrar(e.sessao ? 't-cadastro' : 't-fechado');

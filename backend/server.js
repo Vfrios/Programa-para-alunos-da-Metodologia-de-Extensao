@@ -3,7 +3,7 @@ const express = require('express');
 const { Server } = require('socket.io');
 const db = require('./database');
 const { configurarAdmin, confere } = require('./engine/admin');
-const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades } = require('./engine/gerador');
+const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades, criarSorteadorDeModelos } = require('./engine/gerador');
 const { criarDesafio } = require('./engine/desafios');
 const { calcularPontos, ajustarNivel, mensagemErro, premio, nota } = require('./engine/regras');
 const { agora, paraMin, horaFim, sobrepoe, DURACAO_MIN } = require('./agendamento');
@@ -32,6 +32,7 @@ const pendentes = new Map();   // alunoId -> pergunta em andamento (resposta cer
 const online = new Map();      // sessaoId -> Set(socket.id)
 const comboPorAluno = new Map();
 const sorteadoresAtividade = new Map();
+const sorteadoresModelo = new Map();
 const desafiosPendentes = new Map();
 let sujo = false;
 
@@ -57,7 +58,7 @@ function resumo(alunoId) {
 }
 const painel = () => abertas().map((s) => ({ id: s.id, sala_id: s.sala_id, sala: s.sala, status: s.status,
   conectados: online.get(s.id)?.size || 0, alunos: get('SELECT COUNT(*) n FROM alunos WHERE sessao_id=?', s.id).n,
-  abriram_em: s.aberta_em, iniciada_em: s.iniciada_em, encerrada_em: s.encerrada_em,
+  aberta_em: s.aberta_em, iniciada_em: s.iniciada_em, encerrada_em: s.encerrada_em,
   terminaram: terminaram(s.id), ranking: ranking(s.id).slice(0, 10) }));
 function emitirPainel() { const p = painel(); io.to('admin').emit('painel', p); p.forEach((s) => io.to('s' + s.id).emit('conectados', s.conectados)); }
 function emitirRanking() {
@@ -96,7 +97,7 @@ function encerrarSessao(id) {
   const rk = ranking(id);
   rk.forEach((r, i) => {
     run('INSERT INTO historico_ranking(sessao_id,posicao,aluno,pontos) VALUES(?,?,?,?)', id, i + 1, r.nome, r.pontos);
-    const m = resumo(r.id); pendentes.delete(r.id); desafiosPendentes.delete(r.id);
+    const m = resumo(r.id); pendentes.delete(r.id); desafiosPendentes.delete(r.id); sorteadoresModelo.delete(r.id);
     run('INSERT INTO premiacoes(aluno_id,sessao_id,premio,nota,media) VALUES(?,?,?,?,?)', r.id, id, m.premio, m.nota, m.media);
   });
   io.to('s' + id).emit('encerrada', rk.slice(0, 10));
@@ -131,7 +132,9 @@ app.get('/api/estado', (req, res) => {
     if (a) return res.json({ aluno: { id: a.id, nome: a.nome }, status: a.status });
   }
   const s = primeira();
-  res.json(s ? { sessao: s.id, status: s.status } : { sessao: null });
+  const nomesSugeridos = s ? all(`SELECT DISTINCT ai.nome FROM alunos_importados ai
+    JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? ORDER BY ai.nome`, s.sala_id).map((x) => x.nome) : [];
+  res.json(s ? { sessao: s.id, status: s.status, nomesSugeridos } : { sessao: null });
 });
 
 app.post('/api/alunos', ok((req, res) => {
@@ -169,12 +172,10 @@ app.post('/api/pergunta', ok((req, res) => {
     const turma = get('SELECT conteudo_maior_dificuldade FROM salas WHERE id=?', a.sala_id);
     const nivelBase = get('SELECT nivel FROM perfis WHERE aluno_id=? AND atividade=?', id, at)?.nivel ?? 1;
     const nivel = Math.min(5, nivelBase + (turma?.conteudo_maior_dificuldade === at ? 1 : 0));
-    const recentes = new Set(all('SELECT pergunta FROM respostas WHERE aluno_id=? AND atividade=? ORDER BY id DESC LIMIT 10', id, at).map((r) => r.pergunta));
-    let pergunta;
-    for (let tentativa = 0; tentativa < 16; tentativa++) {
-      pergunta = gerarPergunta(at, nivel);
-      if (!recentes.has(pergunta.texto)) break;
-    }
+    if (!sorteadoresModelo.has(id)) sorteadoresModelo.set(id, new Map());
+    const modelosDoAluno = sorteadoresModelo.get(id);
+    if (!modelosDoAluno.has(at)) modelosDoAluno.set(at, criarSorteadorDeModelos());
+    const pergunta = gerarPergunta(at, nivel, modelosDoAluno.get(at));
     q = { p: pergunta, nivelReal: nivel, t0: Date.now(), erros: 0, dica: 0, sessaoId: a.sessao_id, combo: comboPorAluno.get(id) || 0 };
     pendentes.set(id, q);
   }
@@ -208,14 +209,16 @@ app.post('/api/resposta', ok((req, res) => {
          acertos=acertos+excluded.acertos, erros=erros+excluded.erros`, id, q.p.atividade, nivel, correta ? 1 : 0, correta ? 0 : 1, seg);
     comboPorAluno.set(id, correta && q.erros === 0 && q.dica === 0 ? comboNovo : 0);
     pendentes.delete(id); sujo = true; out.pontos = pontos;
-    if (TOTAL > 0 && get('SELECT COUNT(*) n FROM respostas WHERE aluno_id=?', id).n >= TOTAL) { out.fim = true; out.resumo = resumo(id); emitirRanking(); }
+    if (TOTAL > 0 && get('SELECT COUNT(*) n FROM respostas WHERE aluno_id=?', id).n >= TOTAL) {
+      out.fim = true; out.resumo = resumo(id); sorteadoresModelo.delete(id); emitirRanking();
+    }
   }
   res.json(out);
 }));
 
 app.post('/api/desafio', ok((req, res) => {
   const id = +req.body.alunoId;
-  const a = get('SELECT sessao_id FROM alunos WHERE id=?', id);
+  const a = get('SELECT a.sessao_id, sa.ano FROM alunos a JOIN salas sa ON sa.id=a.sala_id WHERE a.id=?', id);
   if (!a) throw new Error('Aluno não encontrado.');
   if (get('SELECT status FROM sessoes WHERE id=?', a.sessao_id)?.status !== 'iniciada') {
     return res.status(409).json({ erro: 'Sessão não está ativa.' });
@@ -231,12 +234,14 @@ app.post('/api/desafio', ok((req, res) => {
   let pendente = desafiosPendentes.get(id);
   if (!pendente || pendente.sessaoId !== a.sessao_id || pendente.rodada !== rodada) {
     const perfil = get('SELECT COALESCE(AVG(nivel),1) nivel FROM perfis WHERE aluno_id=?', id);
-    const p = criarDesafio(rodada, perfil.nivel);
-    pendente = { p, iniciadoEm: Date.now(), rodada, sessaoId: a.sessao_id, concluido: false };
+    const p = criarDesafio(rodada, perfil.nivel, a.ano);
+    const tempoLimite = a.ano === 2 ? 30 : 20;
+    pendente = { p, iniciadoEm: Date.now(), rodada, sessaoId: a.sessao_id, tempoLimite, concluido: false };
     desafiosPendentes.set(id, pendente);
   }
   const { resposta, ...publico } = pendente.p;
-  res.json({ ...publico, tempoLimite: 20, tempoRestante: Math.max(0, 20 - Math.ceil((Date.now() - pendente.iniciadoEm) / 1000)) });
+  res.json({ ...publico, tempoLimite: pendente.tempoLimite,
+    tempoRestante: Math.max(0, pendente.tempoLimite - Math.ceil((Date.now() - pendente.iniciadoEm) / 1000)) });
 }));
 
 app.post('/api/desafio/resposta', ok((req, res) => {
@@ -249,7 +254,7 @@ app.post('/api/desafio/resposta', ok((req, res) => {
     correta: pendente.pontos === 50, expirou: pendente.pontos === 0, pontos: pendente.pontos, concluido: true
   });
 
-  const expirou = Date.now() - pendente.iniciadoEm > 20000 || String(req.body.resposta) === '__timeout__';
+  const expirou = Date.now() - pendente.iniciadoEm >= pendente.tempoLimite * 1000 || String(req.body.resposta) === '__timeout__';
   const correta = !expirou && String(req.body.resposta || '').trim().toLocaleLowerCase('pt-BR') ===
     String(pendente.p.resposta).trim().toLocaleLowerCase('pt-BR');
   if (!correta && !expirou) return res.json({ correta: false, expirou: false });
@@ -337,6 +342,9 @@ app.post('/api/admin/sessoes/:id/iniciar', auth, ok((req, res) => {
 app.post('/api/admin/sessoes/:id/encerrar', auth, ok((req, res) => { encerrarSessao(+req.params.id); res.json({ ok: true }); }));
 
 app.get('/api/admin/alunos', auth, ok((q, res) => res.json(all('SELECT a.id, a.nome, sa.nome AS sala FROM alunos a JOIN salas sa ON sa.id=a.sala_id ORDER BY a.id DESC LIMIT 300'))));
+app.get('/api/admin/importacoes', auth, ok((q, res) => res.json(all(`SELECT i.id, i.arquivo, i.importado_em, s.nome AS sala,
+    COUNT(a.id) AS alunos FROM importacoes_sala i JOIN salas s ON s.id=i.sala_id
+    LEFT JOIN alunos_importados a ON a.importacao_id=i.id GROUP BY i.id ORDER BY i.importado_em DESC, i.id DESC`))));
 app.get('/api/admin/ranking', auth, ok((req, res) => {
   const s = get('SELECT id FROM sessoes WHERE sala_id=? ORDER BY id DESC', +req.query.sala_id);
   res.json(req.query.sala_id ? (s ? ranking(s.id) : []) : rankingGeral());
@@ -346,10 +354,25 @@ const csv = (rows) => { if (!rows.length) return ''; const k = Object.keys(rows[
   return '\ufeff' + [k.join(','), ...rows.map((r) => k.map((c) => q(r[c])).join(','))].join('\n'); };
 app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
   const id = +req.query.id; let rows;
-  if (req.params.tipo === 'aluno') rows = all(`SELECT atividade, nivel, pontos, CASE correta WHEN 1 THEN 'Sim' ELSE 'Não' END AS acertou, ROUND(tempo,1) AS tempo_s, criado_em AS data FROM respostas WHERE aluno_id=? ORDER BY id`, id);
-  else if (req.params.tipo === 'sala') rows = all(`SELECT a.nome AS aluno, COUNT(r.id) AS total_respostas, COALESCE(SUM(r.pontos),0) AS pontos_total, ROUND(AVG(r.tempo),1) AS tempo_medio_s
+  if (req.params.tipo === 'aluno') rows = all(`SELECT atividade, COUNT(*) AS perguntas, SUM(correta) AS acertos,
+      ROUND(100.0 * SUM(correta) / COUNT(*), 1) AS percentual_acerto,
+      SUM(pontos) AS pontos_total, ROUND(AVG(tempo),1) AS tempo_medio_s
+    FROM respostas WHERE aluno_id=? GROUP BY atividade ORDER BY atividade`, id);
+  else if (req.params.tipo === 'historico') rows = all(`SELECT a.nome AS aluno, a.total_respostas AS perguntas,
+      a.pontos_total AS pontos, a.tempo_medio_s
+    FROM alunos_importados a WHERE a.importacao_id=? ORDER BY a.linha_origem`, id);
+  else if (req.params.tipo === 'sala') rows = all(`SELECT a.nome AS aluno, COUNT(r.id) AS perguntas,
+      COALESCE(SUM(r.correta),0) AS acertos,
+      CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+      COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos_total,
+      ROUND(AVG(r.tempo),1) AS tempo_medio_s
     FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id ORDER BY pontos_total DESC`, id);
-  else rows = rankingGeral().map((r, i) => ({ posicao: i + 1, aluno: r.nome, sala: r.sala, pontos: r.pontos }));
+  else rows = all(`SELECT a.nome AS aluno, sa.nome AS sala, COUNT(r.id) AS perguntas,
+      COALESCE(SUM(r.correta),0) AS acertos,
+      CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+      COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
+    FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id
+    GROUP BY a.id ORDER BY pontos DESC, a.nome LIMIT 50`);
   if (req.query.csv) { res.type('text/csv').send(csv(rows)); } else res.json(rows);
 }));
 

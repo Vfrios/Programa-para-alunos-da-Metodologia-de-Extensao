@@ -8,6 +8,10 @@ O professor configura as turmas, escolhe os conteúdos e abre a aula. Os alunos 
 
 Cada aluno possui um nível separado para cada atividade. Assim, o desempenho em soma, por exemplo, não altera automaticamente o nível em subtração. Um acerto rápido pode aumentar o desafio. Respostas erradas ou dificuldade persistente podem reduzir o nível. Quando o aluno acerta uma questão depois de já ter errado, o nível não sobe por esse acerto. O nível fica entre 1 e 5.
 
+Os desafios de pausa também respeitam o ano escolar: no 2º ano, o nível é limitado para manter as contas e comparações mais simples, a memória tem dois pares e o tempo é de 30 segundos. No 3º ano, a memória tem três pares e o tempo é de 20 segundos.
+
+O painel do professor mostra o tempo decorrido de cada atividade em andamento. Os relatórios apresentam o percentual de respostas corretas e, no relatório individual, o desempenho separado por conteúdo para ajudar a identificar o que precisa de reforço.
+
 EXEMPLO DE PROGRESSÃO EM SOMA
 
 Nível 1: números de 1 a 5.
