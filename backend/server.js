@@ -3,10 +3,12 @@ const express = require('express');
 const { Server } = require('socket.io');
 const db = require('./database');
 const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades } = require('./engine/gerador');
+const { criarDesafio } = require('./engine/desafios');
 const { calcularPontos, ajustarNivel, mensagemErro, premio, nota } = require('./engine/regras');
 const { agora, paraMin, DURACAO_MIN } = require('./agendamento');
 
 const TOTAL = Number(process.env.TOTAL_PERGUNTAS || 0);
+const PERGUNTAS_POR_RODADA = 6;
 const app = express(), server = http.createServer(app), io = new Server(server);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend')));
@@ -19,10 +21,17 @@ const ok = (fn) => (req, res) => { try { fn(req, res); } catch (e) { res.status(
 
 // ---------- Admin: senha criptografada (scrypt) + token de sessão ----------
 const hash = (s, salt = crypto.randomBytes(16).toString('hex')) => salt + ':' + crypto.scryptSync(s, salt, 32).toString('hex');
-const confere = (s, h) => { const [salt, k] = h.split(':'); return crypto.timingSafeEqual(Buffer.from(k, 'hex'), crypto.scryptSync(s, salt, 32)); };
+const confere = (s, h) => {
+  const [salt, k] = String(h || '').split(':');
+  if (!salt || !k || !/^[\da-f]{64}$/i.test(k)) return false;
+  return crypto.timingSafeEqual(Buffer.from(k, 'hex'), crypto.scryptSync(s, salt, 32));
+};
+if (process.env.NODE_ENV === 'production' && (!process.env.ADMIN_USER || !process.env.ADMIN_PASS)) {
+  throw new Error('Configure ADMIN_USER e ADMIN_PASS antes de iniciar em produção.');
+}
 if (!get('SELECT 1 x FROM admins')) {
   run('INSERT INTO admins(usuario,senha_hash) VALUES(?,?)', process.env.ADMIN_USER || 'admin', hash(process.env.ADMIN_PASS || 'admin123'));
-  console.log('Admin criado. Usuário padrão: admin / admin123 (troque com ADMIN_USER e ADMIN_PASS).');
+  if (process.env.NODE_ENV !== 'production') console.log('Admin criado. Usuário padrão: admin / admin123 (troque com ADMIN_USER e ADMIN_PASS).');
 }
 const tokens = new Map();
 const auth = (req, res, next) => (tokens.has(req.get('x-token')) ? next() : res.status(401).json({ erro: 'Faça login.' }));
@@ -32,20 +41,26 @@ const pendentes = new Map();   // alunoId -> pergunta em andamento (resposta cer
 const online = new Map();      // sessaoId -> Set(socket.id)
 const comboPorAluno = new Map();
 const sorteadoresAtividade = new Map();
+const desafiosPendentes = new Map();
 let sujo = false;
 
 const abertas = () => all(`SELECT se.*, sa.nome AS sala, sa.ano FROM sessoes se JOIN salas sa ON sa.id=se.sala_id WHERE se.status!='encerrada' ORDER BY se.id`);
-const ranking = (sessaoId) => all(`SELECT a.id, a.nome, COALESCE(SUM(r.pontos),0) AS pontos, COUNT(r.id) AS respostas
+const ranking = (sessaoId) => all(`SELECT a.id, a.nome,
+    COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id AND d.sessao_id=a.sessao_id),0) AS pontos,
+    COUNT(r.id) AS respostas
   FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sessao_id=? GROUP BY a.id ORDER BY pontos DESC, a.id`, sessaoId);
-const rankingGeral = () => all(`SELECT a.id, a.nome, sa.nome AS sala, COALESCE(SUM(r.pontos),0) AS pontos
+const rankingGeral = () => all(`SELECT a.id, a.nome, sa.nome AS sala,
+    COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
   FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id GROUP BY a.id ORDER BY pontos DESC, a.id LIMIT 50`);
 const terminaram = (sid) => get('SELECT COUNT(DISTINCT aluno_id) n FROM respostas WHERE sessao_id=?', sid).n;
 const primeira = () => abertas().sort((x, y) => (x.status === 'aguardando' ? -1 : 1) - (y.status === 'aguardando' ? -1 : 1))[0];
 
 function resumo(alunoId) {
-  const r = get('SELECT COALESCE(SUM(pontos),0) p FROM respostas WHERE aluno_id=?', alunoId);
+  const r = get(`SELECT COALESCE((SELECT SUM(pontos) FROM respostas WHERE aluno_id=?),0) +
+      COALESCE((SELECT SUM(pontos) FROM desafios WHERE aluno_id=?),0) p`, alunoId, alunoId);
   const totalResp = get('SELECT COUNT(*) n FROM respostas WHERE aluno_id=?', alunoId).n;
-  const media = totalResp ? Math.round(r.p / totalResp) : 0;
+  const totalDesafios = get('SELECT COUNT(*) n FROM desafios WHERE aluno_id=?', alunoId).n;
+  const media = totalResp + totalDesafios ? Math.round(r.p / (totalResp + totalDesafios)) : 0;
   const a = get('SELECT sessao_id FROM alunos WHERE id=?', alunoId);
   return { pontos: r.p, media, premio: premio(media), nota: nota(media), posicao: ranking(a.sessao_id).findIndex((x) => x.id === alunoId) + 1 };
 }
@@ -73,7 +88,7 @@ function encerrarSessao(id) {
   const rk = ranking(id);
   rk.forEach((r, i) => {
     run('INSERT INTO historico_ranking(sessao_id,posicao,aluno,pontos) VALUES(?,?,?,?)', id, i + 1, r.nome, r.pontos);
-    const m = resumo(r.id); pendentes.delete(r.id);
+    const m = resumo(r.id); pendentes.delete(r.id); desafiosPendentes.delete(r.id);
     run('INSERT INTO premiacoes(aluno_id,sessao_id,premio,nota,media) VALUES(?,?,?,?,?)', r.id, id, m.premio, m.nota, m.media);
   });
   io.to('s' + id).emit('encerrada', rk.slice(0, 10));
@@ -125,6 +140,10 @@ app.post('/api/pergunta', ok((req, res) => {
   if (se.status !== 'iniciada') return res.status(409).json({ erro: 'Aguarde o professor.' });
   const feitas = get('SELECT COUNT(*) n FROM respostas WHERE aluno_id=?', id).n;
   if (TOTAL > 0 && feitas >= TOTAL) return res.json({ fim: true, resumo: resumo(id) });
+  if (feitas > 0 && feitas % PERGUNTAS_POR_RODADA === 0 &&
+      !get('SELECT 1 x FROM desafios WHERE aluno_id=? AND sessao_id=? AND rodada=?', id, a.sessao_id, feitas / PERGUNTAS_POR_RODADA)) {
+    return res.json({ pausa: true });
+  }
   let q = pendentes.get(id);
   if (!q) {
     const ativ = all('SELECT atividade FROM conteudos WHERE sala_id=?', a.sala_id).map((x) => x.atividade).filter((x) => ATIVIDADES.includes(x));
@@ -180,6 +199,55 @@ app.post('/api/resposta', ok((req, res) => {
     if (TOTAL > 0 && get('SELECT COUNT(*) n FROM respostas WHERE aluno_id=?', id).n >= TOTAL) { out.fim = true; out.resumo = resumo(id); emitirRanking(); }
   }
   res.json(out);
+}));
+
+app.post('/api/desafio', ok((req, res) => {
+  const id = +req.body.alunoId;
+  const a = get('SELECT sessao_id FROM alunos WHERE id=?', id);
+  if (!a) throw new Error('Aluno não encontrado.');
+  if (get('SELECT status FROM sessoes WHERE id=?', a.sessao_id)?.status !== 'iniciada') {
+    return res.status(409).json({ erro: 'Sessão não está ativa.' });
+  }
+  const feitas = get('SELECT COUNT(*) n FROM respostas WHERE aluno_id=?', id).n;
+  if (!feitas || feitas % PERGUNTAS_POR_RODADA !== 0) {
+    return res.status(409).json({ erro: 'O desafio fica disponível ao final de cada rodada.' });
+  }
+  const rodada = feitas / PERGUNTAS_POR_RODADA;
+  const concluido = get('SELECT pontos FROM desafios WHERE aluno_id=? AND sessao_id=? AND rodada=?', id, a.sessao_id, rodada);
+  if (concluido) return res.json({ concluido: true, pontos: concluido.pontos });
+
+  let pendente = desafiosPendentes.get(id);
+  if (!pendente || pendente.sessaoId !== a.sessao_id || pendente.rodada !== rodada) {
+    const perfil = get('SELECT COALESCE(AVG(nivel),1) nivel FROM perfis WHERE aluno_id=?', id);
+    const p = criarDesafio(rodada, perfil.nivel);
+    pendente = { p, iniciadoEm: Date.now(), rodada, sessaoId: a.sessao_id, concluido: false };
+    desafiosPendentes.set(id, pendente);
+  }
+  const { resposta, ...publico } = pendente.p;
+  res.json({ ...publico, tempoLimite: 20, tempoRestante: Math.max(0, 20 - Math.ceil((Date.now() - pendente.iniciadoEm) / 1000)) });
+}));
+
+app.post('/api/desafio/resposta', ok((req, res) => {
+  const id = +req.body.alunoId, pendente = desafiosPendentes.get(id);
+  if (!pendente) throw new Error('Não há desafio em andamento.');
+  if (get('SELECT status FROM sessoes WHERE id=?', pendente.sessaoId)?.status !== 'iniciada') {
+    return res.status(409).json({ erro: 'Sessão não está ativa.' });
+  }
+  if (pendente.concluido) return res.json({
+    correta: pendente.pontos === 50, expirou: pendente.pontos === 0, pontos: pendente.pontos, concluido: true
+  });
+
+  const expirou = Date.now() - pendente.iniciadoEm > 20000 || String(req.body.resposta) === '__timeout__';
+  const correta = !expirou && String(req.body.resposta || '').trim().toLocaleLowerCase('pt-BR') ===
+    String(pendente.p.resposta).trim().toLocaleLowerCase('pt-BR');
+  if (!correta && !expirou) return res.json({ correta: false, expirou: false });
+
+  const pontos = correta ? 50 : 0;
+  run('INSERT OR IGNORE INTO desafios(aluno_id,sessao_id,rodada,tipo,pontos) VALUES(?,?,?,?,?)',
+    id, pendente.sessaoId, pendente.rodada, pendente.p.tipo, pontos);
+  pendente.concluido = true; pendente.pontos = pontos;
+  if (correta) emitirRanking();
+  res.json({ correta, expirou, pontos });
 }));
 
 app.get('/api/resumo/:id', ok((req, res) => res.json(resumo(+req.params.id))));

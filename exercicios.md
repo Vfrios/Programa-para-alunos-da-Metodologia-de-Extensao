@@ -186,3 +186,7 @@ O professor pode indicar um conteúdo para reforçar na configuração da sala. 
 ## Materiais de referência
 
 Os conteúdos foram organizados a partir dos temas encontrados nos materiais da pasta `pdfs`, incluindo adição e subtração, situações-problema, pares e ímpares, contagem de 5 em 5, revisão de multiplicação, formas e medidas. As atividades de divisão e as perguntas de decomposição do tipo “dezenas e unidades: qual número?” não fazem parte do programa. Os exemplos deste catálogo documentam os formatos usados na aplicação.
+
+
+
+remova o ouvir pergunta , 🍪🥛 e so ta com emoji as coisas, alem disso os desadiso de desacanso cada um vale 50 pontos pq tem que resolver no tempo e se resolver dois mesmo assim o segundo =e 50 ent ele ganhou 100, e nas rodadas os desafios devem ser distintos e so podem repetir a cada 5 rodadas, ou seja o primeiro desafio eh de memoria ent quando chegar o segundo desafio  apos as outras 6 pergntas nao pode ser de memoria deve ser de outra coisa e deve ser compativel ao nuvel atual do aluno 

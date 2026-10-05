@@ -22,6 +22,14 @@ O endereço `Rede local` não funciona pela internet pública. Para acesso fora 
 Se o OneDrive travar o banco: `$env:DB_FILE="C:\temp\matematica.db"`.
 Perguntas por aluno (padrão 10): `$env:TOTAL_PERGUNTAS=15`.
 
+## Hospedar no Render
+
+O arquivo `render.yaml` configura um serviço Node.js com disco persistente para o SQLite. No Render, crie um Blueprint a partir deste repositório e aguarde o deploy. O usuário inicial é `professor`; o Render gera `ADMIN_PASS` como segredo. Consulte-o no painel do serviço e troque-o antes de compartilhar o endereço.
+
+O serviço usa uma única instância porque o SQLite local e o disco persistente não são compartilhados entre instâncias. O plano `starter` é necessário para o disco; sem o disco, os dados podem ser perdidos quando o serviço reiniciar ou for atualizado. O Render fornece HTTPS no endereço publicado.
+
+As rodadas têm seis perguntas. Ao final, há um desafio de pausa de até 20 segundos: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking.
+
 ## Como testar sem esperar o horário
 
 1. Admin → **Salas** → crie uma sala (nome, ano, professor, horários, conteúdo) → Salvar.
@@ -34,4 +42,4 @@ No horário cadastrado, a sessão abre sozinha e encerra sozinha após 50 minuto
 
 ## Estrutura
 
-backend/ (server.js, database.js, agendamento.js, engine/gerador.js, engine/regras.js) · frontend/ (index.html, admin.html) · database/schema.sql
+backend/ (server.js, database.js, agendamento.js, engine/) · frontend/ (index.html, admin.html) · database/schema.sql · render.yaml

@@ -38,7 +38,6 @@
   #texto{font-size:3rem;font-weight:800;text-align:center;margin:6px 0}
   .guia{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:520px;margin:0 auto}
   #personagem{font-size:2.8rem;line-height:1}
-  #ouvir{font-size:1.1rem;padding:6px 12px}
   #cena{text-align:center;font-size:2.6rem;min-height:3.2rem;margin:4px 0}
   #t-pausa{text-align:center;min-height:360px}
   #t-pausa.ativa{display:grid;justify-items:center;align-content:center}
@@ -73,7 +72,6 @@
     #texto{font-size:2.2rem;line-height:1.12;margin:2px 0}
     #cena{font-size:2rem;min-height:2rem;margin:0}
     #personagem{font-size:2.1rem}
-    #ouvir{font-size:1rem;padding:4px 10px}
     #visor{font-size:2rem;min-height:46px;margin-bottom:6px;border-width:2px}
     .teclado{max-width:300px;gap:6px}
     .teclado button{font-size:1.2rem;padding:6px 10px;border-width:2px;border-radius:10px}
@@ -112,7 +110,7 @@
 
     <div id="t-jogo" class="tela">
       <div id="prog"></div>
-      <div class="guia"><span id="personagem" aria-hidden="true">🤖</span><button id="ouvir" type="button" aria-label="Ouvir o enunciado">🔊 Ouvir pergunta</button></div>
+      <div class="guia"><span id="personagem" aria-hidden="true">🤖</span></div>
       <div id="cena" aria-hidden="true"></div><div id="texto"></div>
       <div id="a-digitar"><div id="visor"></div><div class="teclado" id="teclado"></div></div>
       <div id="a-clicar" class="opcoes"></div>
@@ -122,10 +120,11 @@
 
     <div id="t-pausa" class="tela">
       <div id="pausa-personagem" aria-hidden="true">🤖</div>
-      <h2>Pausa rápida: jogo da memória</h2>
-      <p>Encontre os três pares antes da próxima rodada.</p>
+      <h2 id="pausa-titulo">Desafio-relâmpago</h2>
+      <p id="pausa-instrucao">Resolva o desafio antes da próxima rodada.</p>
+      <p>Resolva em até 20 segundos. Cada desafio vale 50 pontos.</p>
       <div id="memoria-pares" role="status" aria-live="polite">Pares: 0 de 3</div>
-      <div id="tabuleiro-memoria" role="group" aria-label="Jogo da memória">
+      <div id="tabuleiro-memoria" role="group" aria-label="Jogo da memória" hidden>
         <button type="button" data-carta="0" aria-label="Carta 1, fechada">?</button>
         <button type="button" data-carta="1" aria-label="Carta 2, fechada">?</button>
         <button type="button" data-carta="2" aria-label="Carta 3, fechada">?</button>
@@ -133,6 +132,7 @@
         <button type="button" data-carta="4" aria-label="Carta 5, fechada">?</button>
         <button type="button" data-carta="5" aria-label="Carta 6, fechada">?</button>
       </div>
+      <div id="pausa-opcoes" class="opcoes" hidden></div>
       <div id="pausa-contagem" role="status" aria-live="polite"></div>
     </div>
 
@@ -165,10 +165,11 @@ const NOMES_UNIDADES = { mm: 'milímetros', cm: 'centímetros', m: 'metros', km:
 
 let aluno = null, q = null, digitado = '', travado = false, total = 0, dados = [], idade = null, encerrada = false;
 let pausaTimer = null, jogoMemoriaAtivo = false, cartasMemoria = [], cartasViradas = [], paresMemoria = [], bloqueioMemoria = null, pacoteMemoriaAnterior = -1;
+let desafioAtual = null, desafioResolvido = false, desafioEnviando = false;
 
 const CENAS = {
   soma: [['🧺', '🍎'], ['🛒', '🍌'], ['🚀', '⭐']],
-  subtracao: [['🎈', '☁️'], ['🐑', '🌧️'], ['🍪', '🥛']],
+  subtracao: [['🎈', '☁️'], ['🐑', '🌧️'], ['🍎', '🧺']],
   multiplicacao: [['🤖', '🧱'], ['📦', '✏️'], ['🍕', '🧀']],
   sequencia: [['🚂', '🚃'], ['🐸', '🪷'], ['🚀', '🪐']],
   par_impar: [['🧦', '🧦'], ['🐟', '🪣'], ['🌷', '🦋']],
@@ -242,8 +243,7 @@ $('tabuleiro-memoria').onclick = (e) => {
     $('memoria-pares').textContent = totalPares === 3 ? 'Você encontrou todos os pares!' : `Pares: ${totalPares} de 3`;
     if (totalPares === 3) {
       jogoMemoriaAtivo = false;
-      $('memoria-pares').textContent = 'Muito bem! Novo desafio chegando...';
-      bloqueioMemoria = setTimeout(() => { bloqueioMemoria = null; iniciarJogoMemoria(); }, 900);
+      responderDesafio('concluido');
     }
     desenharCartasMemoria();
     return;
@@ -254,17 +254,69 @@ $('tabuleiro-memoria').onclick = (e) => {
   }, 700);
 };
 
-function iniciarPausa() {
+async function iniciarPausa() {
   if (pausaTimer) clearInterval(pausaTimer);
+  pararJogoMemoria();
+  desafioAtual = null; desafioResolvido = false; desafioEnviando = false;
+  $('tabuleiro-memoria').hidden = true; $('pausa-opcoes').hidden = true; $('pausa-opcoes').replaceChildren();
+  $('memoria-pares').hidden = true; $('pausa-instrucao').textContent = 'Resolva o desafio antes da próxima rodada.';
+  $('pausa-contagem').textContent = 'Preparando o desafio...'; mostrar('t-pausa');
   let restante = 20;
+  try {
+    const r = await api('/api/desafio', { alunoId: aluno.id });
+    if (r.erro) throw new Error(r.erro);
+    if (r.concluido) return proxima();
+    desafioAtual = r;
+    restante = r.tempoRestante ?? r.tempoLimite ?? 20;
+    $('pausa-instrucao').textContent = r.texto;
+    if (r.tipo === 'memoria') {
+      $('tabuleiro-memoria').hidden = false; $('memoria-pares').hidden = false;
+      iniciarJogoMemoria();
+    } else {
+      $('pausa-opcoes').hidden = false;
+      r.opcoes.forEach((opcao) => {
+        const botao = document.createElement('button');
+        botao.textContent = opcao;
+        botao.onclick = () => responderDesafio(opcao);
+        $('pausa-opcoes').appendChild(botao);
+      });
+    }
+  } catch (e) {
+    $('pausa-instrucao').textContent = 'Não foi possível carregar o desafio. A próxima rodada começará em instantes.';
+  }
   $('pausa-contagem').textContent = `Próxima rodada em ${restante} segundos`;
-  iniciarJogoMemoria(); mostrar('t-pausa');
   pausaTimer = setInterval(() => {
     restante--;
     if (restante <= 0) {
-      clearInterval(pausaTimer); pausaTimer = null; pararJogoMemoria(); proxima();
+      clearInterval(pausaTimer); pausaTimer = null; pararJogoMemoria();
+      responderDesafio('__timeout__').finally(() => proxima());
     } else $('pausa-contagem').textContent = `Próxima rodada em ${restante} segundos`;
   }, 1000);
+}
+
+async function responderDesafio(resposta) {
+  if (!desafioAtual || desafioResolvido || desafioEnviando) return;
+  desafioEnviando = true;
+  try {
+    const r = await api('/api/desafio/resposta', { alunoId: aluno.id, resposta });
+    if (r.erro) throw new Error(r.erro);
+    if (r.correta) {
+      desafioResolvido = true;
+      total += r.pontos; $('pontos').textContent = total + ' pontos';
+      $('pausa-instrucao').textContent = `Muito bem! +${r.pontos} pontos 🎉`;
+      $('memoria-pares').textContent = `Desafio concluído! +${r.pontos} pontos`;
+      som(660); confete();
+    } else if (r.expirou) {
+      desafioResolvido = true;
+      $('pausa-instrucao').textContent = 'O tempo acabou. Tente o próximo desafio!';
+    } else {
+      $('pausa-instrucao').textContent = 'Ainda não! Tente outra resposta antes que o tempo acabe.';
+    }
+  } catch {
+    $('pausa-instrucao').textContent = 'Não foi possível confirmar a resposta. Verifique a conexão.';
+  } finally {
+    desafioEnviando = false;
+  }
 }
 
 // ---------- sons e confete ----------
@@ -294,6 +346,13 @@ function entrar(status) {
   $('lado').hidden = false; $('main').classList.add('com-lado'); $('pontos').hidden = false;
   socket.emit('entrar', { alunoId: aluno.id });
   $('ola').textContent = `Olá, ${aluno.nome}! 👋`;
+  const alunoId = aluno.id;
+  api('/api/resumo/' + alunoId).then((r) => {
+    if (aluno?.id !== alunoId || !Number.isFinite(r.pontos)) throw new Error(r.erro || 'Pontuação inválida.');
+    total = r.pontos; $('pontos').textContent = total + ' pontos';
+  }).catch(() => {
+    if (aluno?.id === alunoId) $('pontos').textContent = 'Pontuação indisponível';
+  });
   status === 'iniciada' ? proxima() : mostrar('t-espera');
 }
 
@@ -305,10 +364,11 @@ async function proxima() {
   const r = await api('/api/pergunta', { alunoId: aluno.id });
   if (r.encerrada) return fim();
   if (r.fim) return fim(r.resumo);
+  if (r.pausa) return iniciarPausa();
   if (r.erro) return mostrar('t-espera');
   q = r;
-  const perguntaRodada = (r.numero - 1) % 5 + 1, numeroRodada = Math.floor((r.numero - 1) / 5) + 1;
-  $('prog').textContent = `Rodada ${numeroRodada} · Pergunta ${perguntaRodada} de 5${r.total ? ` · ${r.numero} de ${r.total} no total` : ''}`;
+  const perguntaRodada = (r.numero - 1) % 6 + 1, numeroRodada = Math.floor((r.numero - 1) / 6) + 1;
+  $('prog').textContent = `Rodada ${numeroRodada} · Pergunta ${perguntaRodada} de 6${r.total ? ` · ${r.numero} de ${r.total} no total` : ''}`;
   $('texto').textContent = r.texto; mostrarCena(r.atividade, r.numero);
   $('a-digitar').style.display = r.tipo === 'digitar' ? 'block' : 'none';
   $('a-clicar').style.display = r.tipo === 'clicar' ? 'flex' : 'none';
@@ -318,12 +378,6 @@ async function proxima() {
   if (r.tipo === 'arrastar') { $('alvo').textContent = '?'; $('alvo').classList.remove('certo'); $('chips').innerHTML = ''; r.opcoes.forEach((o) => $('chips').appendChild(chip(o))); }
   mostrar('t-jogo');
 }
-$('ouvir').onclick = () => {
-  if (!q || !('speechSynthesis' in window)) { $('msg').textContent = 'A leitura em voz alta não está disponível neste navegador.'; return; }
-  window.speechSynthesis.cancel();
-  const fala = new SpeechSynthesisUtterance(q.texto); fala.lang = 'pt-BR'; fala.rate = 0.9;
-  window.speechSynthesis.speak(fala);
-};
 function montarTeclado() {
   $('visor').textContent = ''; $('teclado').innerHTML = '';
   ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'OK'].forEach((k) => { const b = document.createElement('button'); b.textContent = k; b.onclick = () => tecla(k); $('teclado').appendChild(b); });
@@ -372,7 +426,7 @@ async function enviar(resposta, el) {
     el?.classList.add('certo'); if (q.tipo === 'arrastar') $('alvo').classList.add('certo');
     const elogio = ELOGIOS_ROBO[Math.floor(Math.random() * ELOGIOS_ROBO.length)];
     msg.textContent = `✅ ${elogio} +${r.pontos}`; msg.className = 'ok'; som(660); setTimeout(() => som(880), 120); confete();
-    const fimRodada = q.numero % 5 === 0;
+    const fimRodada = q.numero % 6 === 0;
     return setTimeout(() => { if (r.fim) fim(r.resumo); else if (fimRodada) iniciarPausa(); else proxima(); }, 1300);
   }
   const incentivo = r.erros < 3 ? INCENTIVOS_ROBO[Math.floor(Math.random() * INCENTIVOS_ROBO.length)] : (r.mensagem || 'Vamos com calma!');
@@ -384,8 +438,8 @@ async function enviar(resposta, el) {
     document.querySelectorAll('#a-clicar button,#chips .chip').forEach((b) => { if ((b.dataset.valor || b.textContent) === r.respostaCerta) b.classList.add('certo'); });
     if (q.tipo === 'arrastar') { $('alvo').textContent = r.respostaCerta; $('alvo').classList.add('certo'); }
     if (q.tipo === 'digitar') $('visor').textContent = r.respostaCerta;
-    const fimRodada = q.numero % 5 === 0;
-    return setTimeout(() => fimRodada ? iniciarPausa() : proxima(), 3200);
+    const fimRodada = q.numero % 6 === 0;
+    return setTimeout(() => { if (r.fim) fim(r.resumo); else if (fimRodada) iniciarPausa(); else proxima(); }, 3200);
   }
   digitado = ''; if (q.tipo === 'digitar') $('visor').textContent = ''; travado = false;
 }
@@ -394,7 +448,6 @@ async function enviar(resposta, el) {
 async function fim(res) {
   if (pausaTimer) { clearInterval(pausaTimer); pausaTimer = null; }
   pararJogoMemoria();
-  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   res = res || await api('/api/resumo/' + aluno.id);
   $('fim-titulo').textContent = encerrada ? 'Fim da aula!' : 'Você terminou! 🎉';
   $('fim-emoji').textContent = EMOJI[res.premio] || '⭐'; $('fim-premio').textContent = res.premio;
