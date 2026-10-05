@@ -2,6 +2,7 @@ const path = require('path'), http = require('http'), crypto = require('crypto')
 const express = require('express');
 const { Server } = require('socket.io');
 const db = require('./database');
+const { configurarAdmin, confere } = require('./engine/admin');
 const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades } = require('./engine/gerador');
 const { criarDesafio } = require('./engine/desafios');
 const { calcularPontos, ajustarNivel, mensagemErro, premio, nota } = require('./engine/regras');
@@ -20,19 +21,9 @@ const run = (s, ...p) => db.prepare(s).run(...p);
 const ok = (fn) => (req, res) => { try { fn(req, res); } catch (e) { res.status(400).json({ erro: e.message }); } };
 
 // ---------- Admin: senha criptografada (scrypt) + token de sessão ----------
-const hash = (s, salt = crypto.randomBytes(16).toString('hex')) => salt + ':' + crypto.scryptSync(s, salt, 32).toString('hex');
-const confere = (s, h) => {
-  const [salt, k] = String(h || '').split(':');
-  if (!salt || !k || !/^[\da-f]{64}$/i.test(k)) return false;
-  return crypto.timingSafeEqual(Buffer.from(k, 'hex'), crypto.scryptSync(s, salt, 32));
-};
-if (process.env.NODE_ENV === 'production' && (!process.env.ADMIN_USER || !process.env.ADMIN_PASS)) {
-  throw new Error('Configure ADMIN_USER e ADMIN_PASS antes de iniciar em produção.');
-}
-if (!get('SELECT 1 x FROM admins')) {
-  run('INSERT INTO admins(usuario,senha_hash) VALUES(?,?)', process.env.ADMIN_USER || 'admin', hash(process.env.ADMIN_PASS || 'admin123'));
-  if (process.env.NODE_ENV !== 'production') console.log('Admin criado. Usuário padrão: admin / admin123 (troque com ADMIN_USER e ADMIN_PASS).');
-}
+const tinhaAdmin = Boolean(get('SELECT 1 x FROM admins'));
+configurarAdmin(db, process.env.ADMIN_USER || 'admin', process.env.ADMIN_PASS || 'admin123', process.env.NODE_ENV === 'production');
+if (!tinhaAdmin && process.env.NODE_ENV !== 'production') console.log('Admin criado. Usuário padrão: admin / admin123 (troque com ADMIN_USER e ADMIN_PASS).');
 const tokens = new Map();
 const auth = (req, res, next) => (tokens.has(req.get('x-token')) ? next() : res.status(401).json({ erro: 'Faça login.' }));
 

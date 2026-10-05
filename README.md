@@ -24,9 +24,9 @@ Perguntas por aluno (padrão 10): `$env:TOTAL_PERGUNTAS=15`.
 
 ## Hospedar no Render
 
-O arquivo `render.yaml` configura um serviço Node.js com disco persistente para o SQLite. No Render, crie um Blueprint a partir deste repositório e aguarde o deploy. O usuário inicial é `professor`; o Render gera `ADMIN_PASS` como segredo. Consulte-o no painel do serviço e troque-o antes de compartilhar o endereço.
+O arquivo `render.yaml` configura um Web Service Node.js no plano gratuito. No Render, crie um Blueprint a partir deste repositório e aguarde o deploy. O usuário inicial é `professor`; o Render gera `ADMIN_PASS` como segredo. Consulte-o no painel do serviço e troque-o antes de compartilhar o endereço. Em produção, `ADMIN_USER` e `ADMIN_PASS` configurados no Render atualizam a conta de administrador já existente no banco incluído no deploy, então use esses mesmos valores para entrar.
 
-O serviço usa uma única instância porque o SQLite local e o disco persistente não são compartilhados entre instâncias. O plano `starter` é necessário para o disco; sem o disco, os dados podem ser perdidos quando o serviço reiniciar ou for atualizado. O Render fornece HTTPS no endereço publicado.
+O serviço usa uma única instância. No plano gratuito não há disco persistente: o banco do repositório é incluído no deploy, mas alterações feitas durante a execução podem ser perdidas quando o serviço reiniciar ou for atualizado. O Render fornece HTTPS no endereço publicado.
 
 As rodadas têm seis perguntas. Ao final, há um desafio de pausa de até 20 segundos: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking.
 
