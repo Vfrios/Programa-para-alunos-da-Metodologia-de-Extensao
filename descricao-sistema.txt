@@ -1,0 +1,62 @@
+SISTEMA ADAPTATIVO DE MATEMÁTICA
+
+O sistema foi criado para apoiar alunos do 2º e do 3º ano do Ensino Fundamental na prática de matemática. Ele apresenta exercícios variados, acompanha o desempenho individual em cada atividade e ajusta gradualmente o nível das perguntas.
+
+COMO FUNCIONA
+
+O professor configura as turmas, escolhe os conteúdos e abre a aula. Os alunos entram pelo próprio computador, e o professor inicia a atividade quando a turma estiver pronta. Durante a aula, as perguntas são geradas pelo sistema e podem aparecer como contas, situações do cotidiano, opções para clicar ou figuras e respostas para arrastar.
+
+Cada aluno possui um nível separado para cada atividade. Assim, o desempenho em soma, por exemplo, não altera automaticamente o nível em subtração. Um acerto rápido pode aumentar o desafio. Respostas erradas ou dificuldade persistente podem reduzir o nível. Quando o aluno acerta uma questão depois de já ter errado, o nível não sobe por esse acerto. O nível fica entre 1 e 5.
+
+EXEMPLO DE PROGRESSÃO EM SOMA
+
+Nível 1: números de 1 a 5.
+Exercicio: 1 + 1 = ?
+Resposta: 2.
+
+Nível 2: números de 1 a 10.
+Exercicio: 5 + 3 = ?
+Resposta: 8.
+
+Nível 3: números de 10 a 99.
+Exercicio: 18 + 24 = ?
+Resposta: 42.
+
+Nível 4: números de 100 a 999.
+Exercicio: 248 + 317 = ?
+Resposta: 565.
+
+Nível 5: números de 1.000 a 9.999.
+Exercicio: 1.245 + 2.378 = ?
+Resposta: 3.623.
+
+Os exemplos mostram a progressão. Na aula, os valores e os enunciados podem mudar. A soma também pode aparecer em situações como juntar livros, materiais escolares, visitantes ou itens produzidos.
+
+ATIVIDADES DISPONIVEIS
+
+2º ano:
+- Soma e subtração.
+- Sequências numéricas, com lacunas e contagens para frente ou para trás.
+- Par ou impar.
+- Antecessor e sucessor.
+
+3º ano:
+- Soma e subtração.
+- Multiplicação com apoio de grupos e somas repetidas.
+- Sequências numéricas.
+- Par ou ímpar e comparação de números.
+- Reconhecimento de formas geométricas e associação de objetos a unidades de medida.
+
+As atividades efetivamente usadas em cada turma dependem dos conteúdos selecionados pelo professor. Divisão e perguntas de decomposição do tipo "dezenas e unidades: qual número?" não fazem parte do conjunto atual.
+
+COMO O NIVEL MUDA
+
+- O sistema inicia cada atividade do aluno no nível 1.
+- Um acerto rápido, em até 5 segundos, aumenta o nível salvo em 0,5.
+- Acertos em questões respondidas depois de uma ou mais tentativas erradas não aumentam o nível.
+- Erros muito demorados podem reduzir o nível em 0,5.
+- O nível mínimo é 1 e o máximo é 5.
+
+Exemplo: um aluno que começa no nível 1 e acerta rapidamente pode avançar para o nível 1,5. A próxima pergunta usa a faixa do nível inteiro correspondente; ao atingir o nível 2, os exercícios passam para a faixa seguinte. Se houver dificuldade persistente, o nível diminui e as perguntas voltam a ficar mais simples.
+
+O objetivo e oferecer pratica continua, com desafios adequados ao ritmo de cada aluno, sem aplicar a mesma dificuldade a todos.

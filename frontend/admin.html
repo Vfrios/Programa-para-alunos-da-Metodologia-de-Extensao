@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — Matemática Divertida</title>
+<style>
+  :root{--tinta:#1d2b4f;--lapis:#ffc933;--azul:#3a6fe0;--grade:#cfe3f5}
+  *{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;color:var(--tinta);background:#f7fbff}
+  header{display:flex;gap:12px;align-items:center;padding:12px 20px;background:var(--tinta);color:#fff;flex-wrap:wrap}
+  header h1{font-size:1.2rem;margin:0;flex:1}
+  main{max-width:960px;margin:0 auto;padding:16px}
+  button{font:inherit;font-weight:600;border:2px solid var(--tinta);border-radius:8px;background:var(--lapis);color:var(--tinta);padding:6px 14px;cursor:pointer}
+  #mostrar-senha{padding:6px 8px}
+  header button{border-color:#fff}button.sel{background:var(--azul);color:#fff}
+  input,select{font:inherit;padding:6px 8px;border:2px solid var(--tinta);border-radius:8px}
+  .caixa,.item{background:#fff;border:2px solid var(--tinta);border-radius:12px;padding:14px;margin-bottom:12px}
+  .linha{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+  .aba{display:none}.aba.ativa{display:block}
+  table{border-collapse:collapse;width:100%}th,td{border:1px solid var(--grade);padding:4px 8px;text-align:left}th{background:var(--grade)}
+  #erro{color:#c0392b;font-weight:600}
+  @media print{header,.sem-print{display:none}}
+</style>
+</head>
+<body>
+<form id="login" class="caixa" style="max-width:340px;margin:60px auto">
+  <h2>Painel do professor</h2>
+  <div class="linha"><input id="u" placeholder="Usuário" autocomplete="username"></div>
+  <div class="linha"><input id="s" type="password" placeholder="Senha" autocomplete="current-password"><button id="mostrar-senha" type="button" aria-pressed="false">Mostrar</button></div>
+  <div class="linha"><button id="b-login" type="submit">Entrar</button> <span id="erro"></span></div>
+</form>
+
+<div id="app" hidden>
+<header><h1>🧮 Matemática Divertida — Admin</h1>
+  <button data-aba="aula" class="sel">Aula</button><button data-aba="salas">Salas</button><button data-aba="rel">Relatórios</button><button id="sair">Sair</button></header>
+<main>
+  <section id="aba-aula" class="aba ativa">
+    <div class="caixa"><div class="linha"><b>Sala:</b> <select id="sel-sala"></select> <button id="abrir">Abrir sessão</button>
+      <small>(as sessões também abrem sozinhas no horário cadastrado)</small></div></div>
+    <div id="sessoes"></div>
+  </section>
+
+  <section id="aba-salas" class="aba">
+    <div class="caixa"><h3 id="form-titulo">Nova sala</h3><input type="hidden" id="f-id">
+      <div class="linha"><input id="f-nome" placeholder="Nome (ex: 2º A)"> <select id="f-ano" aria-label="Ano"><option value="2">2º ano</option><option value="3">3º ano</option></select>
+        <input id="f-prof" placeholder="Professor responsável"></div>
+      <div class="linha"><select id="f-conteudo-dificil" aria-label="Conteúdo para reforçar"><option value="">Selecione o conteúdo para reforçar</option></select></div>
+      <div><b>Horários</b> <button id="add-h" type="button">+ horário</button><div id="f-horarios"></div></div>
+      <div style="margin-top:8px"><b>Conteúdo</b><div class="linha" id="f-ativ"></div></div>
+      <div class="linha"><button id="salvar">Salvar sala</button> <button id="cancelar" type="button">Limpar</button> <span id="f-erro" style="color:#c0392b"></span></div>
+    </div>
+    <div class="linha"><label><input id="salas-selecionar-todas" type="checkbox"> Selecionar todas</label>
+      <button id="salas-excluir-selecionadas" type="button" disabled>Excluir selecionadas</button><small id="salas-selecao-contagem">0 salas selecionadas</small></div>
+    <div id="lista-salas"></div>
+  </section>
+
+  <section id="aba-rel" class="aba">
+    <div class="caixa sem-print"><div class="linha">
+      <select id="r-tipo"><option value="geral">Geral (ranking de todos)</option><option value="sala">Por sala</option><option value="aluno">Por aluno</option></select>
+      <select id="r-alvo"></select><button id="r-ver">Ver</button><button id="r-csv">Exportar CSV</button><button id="r-pdf">Exportar PDF</button></div></div>
+    <div id="r-tabela"></div>
+  </section>
+</main></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const NOMES = { soma: 'Soma', subtracao: 'Subtração', multiplicacao: 'Multiplicação', sequencia: 'Sequências numéricas', formas: 'Formas geométricas', medidas: 'Medidas', par_impar: 'Par ou ímpar', maior_menor: 'Maior ou menor', antecessor_sucessor: 'Antecessor e sucessor' };
+let token = sessionStorage.getItem('t'), salas = [];
+
+function popularSelects() {
+  $('f-conteudo-dificil').innerHTML = '<option value="">Selecione o conteúdo mais difícil</option>' + Object.entries(NOMES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+}
+
+async function api(u, m = 'GET', b) {
+  const r = await fetch(u, { method: m, headers: { 'Content-Type': 'application/json', 'x-token': token || '' }, body: b ? JSON.stringify(b) : undefined });
+  if (r.status === 401 && token) { sair(); throw new Error('Sessão expirada.'); }
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.erro || 'Erro'); return j;
+}
+function sair() { sessionStorage.removeItem('t'); location.reload(); }
+$('sair').onclick = sair;
+$('login').onsubmit = async (e) => {
+  e.preventDefault();
+  $('erro').textContent = '';
+  try { const r = await api('/api/admin/login', 'POST', { usuario: $('u').value, senha: $('s').value }); token = r.token; sessionStorage.setItem('t', token); iniciar(); }
+  catch (e) { $('erro').textContent = e.message; }
+};
+$('mostrar-senha').onclick = () => {
+  const mostrar = $('s').type === 'password';
+  $('s').type = mostrar ? 'text' : 'password';
+  $('mostrar-senha').textContent = mostrar ? 'Ocultar' : 'Mostrar';
+  $('mostrar-senha').setAttribute('aria-pressed', String(mostrar));
+  $('s').focus();
+};
+
+document.querySelectorAll('[data-aba]').forEach((b) => (b.onclick = () => {
+  document.querySelectorAll('[data-aba]').forEach((x) => x.classList.toggle('sel', x === b));
+  document.querySelectorAll('.aba').forEach((a) => a.classList.toggle('ativa', a.id === 'aba-' + b.dataset.aba));
+  if (b.dataset.aba === 'rel') alvos();
+}));
+
+// ---------- Aula ----------
+const socket = io();
+socket.on('painel', pintarSessoes);
+socket.on('connect', () => token && socket.emit('admin', { token }));
+function pintarSessoes(p) {
+  $('sessoes').innerHTML = p.map((s) => `<div class="item"><h3>${esc(s.sala)} — ${s.status === 'aguardando' ? '⏳ aguardando início' : '▶️ em andamento'}</h3>
+    <p>Conectados: <b>${s.conectados}</b> · Cadastrados: ${s.alunos} · Terminaram: <b>${s.terminaram}</b></p>
+    <p><small>Início: ${s.iniciada_em ? new Date(s.iniciada_em).toLocaleString('pt-BR') : (s.aberta_em ? new Date(s.aberta_em).toLocaleString('pt-BR') : '—')} · Fim: ${s.encerrada_em ? new Date(s.encerrada_em).toLocaleString('pt-BR') : '—'}</small></p>
+    <div class="linha">${s.status === 'aguardando' ? `<button data-ini="${s.id}">▶ Iniciar atividade</button>` : ''}<button data-fim="${s.id}">⏹ Encerrar sessão</button></div>
+    <ol>${s.ranking.map((r) => `<li>${esc(r.nome)} — <b>${r.pontos}</b> pts</li>`).join('')}</ol></div>`).join('') || '<p>Nenhuma sessão aberta. Escolha uma sala e clique em “Abrir sessão”.</p>';
+}
+$('sessoes').onclick = async (e) => {
+  const d = e.target.dataset; if (d.ini) await api(`/api/admin/sessoes/${d.ini}/iniciar`, 'POST');
+  if (d.fim && confirm('Encerrar a sessão agora?')) await api(`/api/admin/sessoes/${d.fim}/encerrar`, 'POST');
+};
+$('abrir').onclick = () => api('/api/admin/sessoes', 'POST', { sala_id: +$('sel-sala').value }).catch((e) => alert(e.message));
+
+// ---------- Salas ----------
+$('f-ativ').innerHTML = Object.entries(NOMES).map(([k, v]) => `<label><input type="checkbox" value="${k}" checked> ${v}</label>`).join(' ');
+function formatarHoraInput(input) {
+  const valor = input.value.replace(/\D/g, '').slice(0, 4);
+  if (!valor) { input.value = ''; return; }
+  if (valor.length <= 2) { input.value = valor; return; }
+  const horas = valor.slice(0, 2);
+  const minutos = valor.slice(2);
+  input.value = `${horas}:${minutos}`.slice(0, 5);
+}
+function linhaHorario(dia = 1, hora = '13:00') {
+  const d = document.createElement('div'); d.className = 'linha';
+  d.innerHTML = `<select aria-label="Dia da semana">${DIAS.map((n, i) => `<option value="${i}" ${i === dia ? 'selected' : ''}>${n}</option>`).join('')}</select><input type="text" value="${hora}" placeholder="HH:mm" aria-label="Horário no formato 24 horas"><button type="button" aria-label="Remover horário">✕</button>`;
+  d.querySelector('input').addEventListener('input', (e) => formatarHoraInput(e.target));
+  d.querySelector('button').onclick = () => d.remove(); $('f-horarios').appendChild(d);
+}
+$('add-h').onclick = () => linhaHorario();
+const padroesPorAno = { 2: ['soma', 'subtracao', 'sequencia', 'par_impar', 'antecessor_sucessor'], 3: ['subtracao', 'soma', 'multiplicacao', 'sequencia', 'par_impar', 'maior_menor', 'formas', 'medidas'] };
+function limpar() { $('f-id').value = ''; $('f-nome').value = ''; $('f-prof').value = ''; $('f-ano').value = 2; $('f-conteudo-dificil').value = ''; $('f-horarios').innerHTML = ''; $('f-erro').textContent = '';
+  $('form-titulo').textContent = 'Nova sala'; document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[2].includes(c.value))); linhaHorario(); }
+$('cancelar').onclick = limpar;
+$('f-ano').onchange = () => { const ano = +$('f-ano').value; document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[ano]?.includes(c.value) || false)); };
+$('salvar').onclick = async () => {
+  const horarios = [...$('f-horarios').children].map((r) => ({ dia: +r.querySelector('select').value, hora: r.querySelector('input').value }));
+  if (horarios.some(({ hora }) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(hora))) {
+    $('f-erro').textContent = 'Use o formato 24 horas HH:mm, por exemplo 13:30.'; return;
+  }
+  const body = { nome: $('f-nome').value, ano: +$('f-ano').value, professor: $('f-prof').value, conteudo_maior_dificuldade: $('f-conteudo-dificil').value || null,
+    horarios,
+    atividades: [...document.querySelectorAll('#f-ativ input:checked')].map((c) => c.value) };
+  try { const id = $('f-id').value; await api(id ? '/api/admin/salas/' + id : '/api/admin/salas', id ? 'PUT' : 'POST', body); limpar(); carregarSalas(); }
+  catch (e) { $('f-erro').textContent = e.message; }
+};
+async function carregarSalas() {
+  salas = await api('/api/admin/salas');
+  $('lista-salas').innerHTML = salas.map((s) => `<div class="item"><label><input type="checkbox" data-selecionar-sala="${s.id}" aria-label="Selecionar sala ${esc(s.nome)}"> Selecionar</label> <b>${esc(s.nome)}</b> — ${s.ano}º ano — ${esc(s.professor)}<br>
+    <small>Conteúdo para reforçar: ${s.conteudo_maior_dificuldade ? NOMES[s.conteudo_maior_dificuldade] || s.conteudo_maior_dificuldade : 'nenhum'}<br>${s.horarios.map((h) => DIAS[h.dia] + ' ' + h.hora).join(', ') || 'sem horário'} · ${s.atividades.map((a) => NOMES[a]).join(', ') || 'sem conteúdo'}</small>
+    <div class="linha"><button data-ed="${s.id}">Editar</button><button data-del="${s.id}">Excluir</button></div></div>`).join('') || '<p>Nenhuma sala criada ainda.</p>';
+  $('sel-sala').innerHTML = salas.map((s) => `<option value="${s.id}">${esc(s.nome)} (${s.ano}º)</option>`).join('');
+  atualizarSelecaoSalas();
+}
+function atualizarSelecaoSalas() {
+  const caixas = [...document.querySelectorAll('[data-selecionar-sala]')];
+  const marcadas = caixas.filter((c) => c.checked).length;
+  $('salas-selecionar-todas').checked = caixas.length > 0 && marcadas === caixas.length;
+  $('salas-selecionar-todas').indeterminate = marcadas > 0 && marcadas < caixas.length;
+  $('salas-excluir-selecionadas').disabled = marcadas === 0;
+  $('salas-selecao-contagem').textContent = `${marcadas} sala${marcadas === 1 ? '' : 's'} selecionada${marcadas === 1 ? '' : 's'}`;
+}
+$('salas-selecionar-todas').onchange = (e) => {
+  document.querySelectorAll('[data-selecionar-sala]').forEach((c) => (c.checked = e.target.checked));
+  atualizarSelecaoSalas();
+};
+$('lista-salas').onchange = (e) => {
+  if (e.target.matches('[data-selecionar-sala]')) atualizarSelecaoSalas();
+};
+$('salas-excluir-selecionadas').onclick = async () => {
+  const ids = [...document.querySelectorAll('[data-selecionar-sala]:checked')].map((c) => Number(c.dataset.selecionarSala));
+  if (!ids.length || !confirm(`Excluir ${ids.length} sala${ids.length === 1 ? '' : 's'} selecionada${ids.length === 1 ? '' : 's'}?`)) return;
+  try { await api('/api/admin/salas', 'DELETE', { ids }); await carregarSalas(); }
+  catch (e) { alert(e.message); }
+};
+$('lista-salas').onclick = async (e) => {
+  const d = e.target.dataset;
+  if (d.del && confirm('Excluir esta sala?')) { await api('/api/admin/salas/' + d.del, 'DELETE'); carregarSalas(); }
+  if (d.ed) { const s = salas.find((x) => x.id == d.ed); limpar(); $('f-horarios').innerHTML = '';
+    $('f-id').value = s.id; $('f-nome').value = s.nome; $('f-ano').value = s.ano; $('f-prof').value = s.professor; $('f-conteudo-dificil').value = s.conteudo_maior_dificuldade || ''; $('form-titulo').textContent = 'Editar sala';
+    s.horarios.forEach((h) => linhaHorario(h.dia, h.hora)); document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = s.atividades.includes(c.value))); scrollTo(0, 0); }
+};
+
+// ---------- Relatórios ----------
+async function alvos() {
+  const t = $('r-tipo').value; $('r-alvo').style.display = t === 'geral' ? 'none' : '';
+  if (t === 'sala') $('r-alvo').innerHTML = salas.map((s) => `<option value="${s.id}">${esc(s.nome)}</option>`).join('');
+  if (t === 'aluno') $('r-alvo').innerHTML = (await api('/api/admin/alunos')).map((a) => `<option value="${a.id}">${esc(a.nome)} (${esc(a.sala)})</option>`).join('');
+}
+$('r-tipo').onchange = alvos;
+const url = (csv) => `/api/admin/relatorio/${$('r-tipo').value}?id=${$('r-alvo').value || 0}${csv ? '&csv=1' : ''}`;
+$('r-ver').onclick = async () => {
+  const rows = await api(url()); if (!rows.length) return ($('r-tabela').innerHTML = '<p>Sem dados.</p>');
+  const k = Object.keys(rows[0]);
+  $('r-tabela').innerHTML = `<table><tr>${k.map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${rows.map((r) => `<tr>${k.map((c) => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</table>`;
+};
+$('r-csv').onclick = async () => {
+  const r = await fetch(url(true), { headers: { 'x-token': token } }); const a = document.createElement('a');
+  a.href = URL.createObjectURL(await r.blob()); a.download = `relatorio-${$('r-tipo').value}.csv`; a.click();
+};
+$('r-pdf').onclick = async () => { await $('r-ver').onclick(); print(); }; // "Salvar como PDF" na janela de impressão
+
+async function iniciar() {
+  popularSelects();
+  $('login').hidden = true; $('app').hidden = false; limpar();
+  socket.emit('admin', { token }); await carregarSalas(); pintarSessoes(await api('/api/admin/painel'));
+}
+if (token) api('/api/admin/painel').then(iniciar).catch(() => {});
+</script>
+</body>
+</html>

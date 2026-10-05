@@ -1,0 +1,279 @@
+const path = require('path'), http = require('http'), crypto = require('crypto'), os = require('os');
+const express = require('express');
+const { Server } = require('socket.io');
+const db = require('./database');
+const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades } = require('./engine/gerador');
+const { calcularPontos, ajustarNivel, mensagemErro, premio, nota } = require('./engine/regras');
+const { agora, paraMin, DURACAO_MIN } = require('./agendamento');
+
+const TOTAL = Number(process.env.TOTAL_PERGUNTAS || 0);
+const app = express(), server = http.createServer(app), io = new Server(server);
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../frontend')));
+app.get('/admin', (q, r) => r.redirect('/admin.html'));
+
+const get = (s, ...p) => db.prepare(s).get(...p);
+const all = (s, ...p) => db.prepare(s).all(...p);
+const run = (s, ...p) => db.prepare(s).run(...p);
+const ok = (fn) => (req, res) => { try { fn(req, res); } catch (e) { res.status(400).json({ erro: e.message }); } };
+
+// ---------- Admin: senha criptografada (scrypt) + token de sessão ----------
+const hash = (s, salt = crypto.randomBytes(16).toString('hex')) => salt + ':' + crypto.scryptSync(s, salt, 32).toString('hex');
+const confere = (s, h) => { const [salt, k] = h.split(':'); return crypto.timingSafeEqual(Buffer.from(k, 'hex'), crypto.scryptSync(s, salt, 32)); };
+if (!get('SELECT 1 x FROM admins')) {
+  run('INSERT INTO admins(usuario,senha_hash) VALUES(?,?)', process.env.ADMIN_USER || 'admin', hash(process.env.ADMIN_PASS || 'admin123'));
+  console.log('Admin criado. Usuário padrão: admin / admin123 (troque com ADMIN_USER e ADMIN_PASS).');
+}
+const tokens = new Map();
+const auth = (req, res, next) => (tokens.has(req.get('x-token')) ? next() : res.status(401).json({ erro: 'Faça login.' }));
+
+// ---------- Estado em memória ----------
+const pendentes = new Map();   // alunoId -> pergunta em andamento (resposta certa nunca vai ao navegador)
+const online = new Map();      // sessaoId -> Set(socket.id)
+const comboPorAluno = new Map();
+const sorteadoresAtividade = new Map();
+let sujo = false;
+
+const abertas = () => all(`SELECT se.*, sa.nome AS sala, sa.ano FROM sessoes se JOIN salas sa ON sa.id=se.sala_id WHERE se.status!='encerrada' ORDER BY se.id`);
+const ranking = (sessaoId) => all(`SELECT a.id, a.nome, COALESCE(SUM(r.pontos),0) AS pontos, COUNT(r.id) AS respostas
+  FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sessao_id=? GROUP BY a.id ORDER BY pontos DESC, a.id`, sessaoId);
+const rankingGeral = () => all(`SELECT a.id, a.nome, sa.nome AS sala, COALESCE(SUM(r.pontos),0) AS pontos
+  FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id GROUP BY a.id ORDER BY pontos DESC, a.id LIMIT 50`);
+const terminaram = (sid) => get('SELECT COUNT(DISTINCT aluno_id) n FROM respostas WHERE sessao_id=?', sid).n;
+const primeira = () => abertas().sort((x, y) => (x.status === 'aguardando' ? -1 : 1) - (y.status === 'aguardando' ? -1 : 1))[0];
+
+function resumo(alunoId) {
+  const r = get('SELECT COALESCE(SUM(pontos),0) p FROM respostas WHERE aluno_id=?', alunoId);
+  const totalResp = get('SELECT COUNT(*) n FROM respostas WHERE aluno_id=?', alunoId).n;
+  const media = totalResp ? Math.round(r.p / totalResp) : 0;
+  const a = get('SELECT sessao_id FROM alunos WHERE id=?', alunoId);
+  return { pontos: r.p, media, premio: premio(media), nota: nota(media), posicao: ranking(a.sessao_id).findIndex((x) => x.id === alunoId) + 1 };
+}
+const painel = () => abertas().map((s) => ({ id: s.id, sala_id: s.sala_id, sala: s.sala, status: s.status,
+  conectados: online.get(s.id)?.size || 0, alunos: get('SELECT COUNT(*) n FROM alunos WHERE sessao_id=?', s.id).n,
+  abriram_em: s.aberta_em, iniciada_em: s.iniciada_em, encerrada_em: s.encerrada_em,
+  terminaram: terminaram(s.id), ranking: ranking(s.id).slice(0, 10) }));
+function emitirPainel() { const p = painel(); io.to('admin').emit('painel', p); p.forEach((s) => io.to('s' + s.id).emit('conectados', s.conectados)); }
+function emitirRanking() {
+  abertas().forEach((s) => io.to('s' + s.id).emit('ranking', ranking(s.id).slice(0, 10)));
+  emitirPainel();
+}
+
+function abrirSessao(salaId) {
+  const ex = get("SELECT * FROM sessoes WHERE sala_id=? AND status!='encerrada'", salaId);
+  if (ex) return ex;
+  const id = Number(run('INSERT INTO sessoes(sala_id,aberta_em) VALUES(?,?)', salaId, new Date().toISOString()).lastInsertRowid);
+  io.emit('estado'); emitirPainel();
+  return get('SELECT * FROM sessoes WHERE id=?', id);
+}
+function encerrarSessao(id) {
+  const s = get('SELECT * FROM sessoes WHERE id=?', id);
+  if (!s || s.status === 'encerrada') return;
+  run("UPDATE sessoes SET status='encerrada', encerrada_em=? WHERE id=?", new Date().toISOString(), id);
+  const rk = ranking(id);
+  rk.forEach((r, i) => {
+    run('INSERT INTO historico_ranking(sessao_id,posicao,aluno,pontos) VALUES(?,?,?,?)', id, i + 1, r.nome, r.pontos);
+    const m = resumo(r.id); pendentes.delete(r.id);
+    run('INSERT INTO premiacoes(aluno_id,sessao_id,premio,nota,media) VALUES(?,?,?,?,?)', r.id, id, m.premio, m.nota, m.media);
+  });
+  io.to('s' + id).emit('encerrada', rk.slice(0, 10));
+  online.delete(id); io.emit('estado'); emitirPainel();
+}
+
+// ---------- Agendamento automático ----------
+function tick() {
+  const t = agora();
+  for (const h of all('SELECT * FROM horarios')) {
+    const ini = paraMin(h.hora);
+    if (h.dia === t.dia && t.min >= ini && t.min < ini + DURACAO_MIN) {
+      const desde = new Date(Date.now() - (t.min - ini + 1) * 60000).toISOString();
+      if (!get('SELECT 1 x FROM sessoes WHERE sala_id=? AND aberta_em>=?', h.sala_id, desde) && get('SELECT 1 x FROM salas WHERE id=?', h.sala_id)) abrirSessao(h.sala_id);
+    }
+  }
+  const limite = new Date(Date.now() - DURACAO_MIN * 60000).toISOString();
+  all("SELECT id FROM sessoes WHERE status!='encerrada' AND aberta_em<?", limite).forEach((s) => encerrarSessao(s.id));
+}
+setInterval(tick, 15000); tick();
+setInterval(() => { if (sujo) { sujo = false; emitirRanking(); } }, 5000); // ranking a cada 5 s
+
+// ---------- API do aluno ----------
+app.get('/api/estado', (req, res) => {
+  const id = +req.query.alunoId;
+  if (id) {
+    const a = get("SELECT a.id, a.nome, se.status FROM alunos a JOIN sessoes se ON se.id=a.sessao_id WHERE a.id=? AND se.status!='encerrada'", id);
+    if (a) return res.json({ aluno: { id: a.id, nome: a.nome }, status: a.status });
+  }
+  const s = primeira();
+  res.json(s ? { sessao: s.id, status: s.status } : { sessao: null });
+});
+
+app.post('/api/alunos', ok((req, res) => {
+  const s = primeira();
+  if (!s) throw new Error('Nenhuma aula acontecendo agora.');
+  const nome = String(req.body.nome || '').trim().slice(0, 30);
+  if (!nome) throw new Error('Digite seu nome.');
+  const id = Number(run('INSERT INTO alunos(sessao_id,sala_id,nome,idade) VALUES(?,?,?,?)', s.id, s.sala_id, nome, +req.body.idade || null).lastInsertRowid);
+  emitirPainel(); res.json({ alunoId: id, nome, status: s.status });
+}));
+
+app.post('/api/pergunta', ok((req, res) => {
+  const id = +req.body.alunoId;
+  const a = get('SELECT a.*, sa.ano FROM alunos a JOIN salas sa ON sa.id=a.sala_id WHERE a.id=?', id);
+  if (!a) throw new Error('Aluno não encontrado.');
+  const se = get('SELECT status FROM sessoes WHERE id=?', a.sessao_id);
+  if (se.status === 'encerrada') return res.json({ encerrada: true });
+  if (se.status !== 'iniciada') return res.status(409).json({ erro: 'Aguarde o professor.' });
+  const feitas = get('SELECT COUNT(*) n FROM respostas WHERE aluno_id=?', id).n;
+  if (TOTAL > 0 && feitas >= TOTAL) return res.json({ fim: true, resumo: resumo(id) });
+  let q = pendentes.get(id);
+  if (!q) {
+    const ativ = all('SELECT atividade FROM conteudos WHERE sala_id=?', a.sala_id).map((x) => x.atividade).filter((x) => ATIVIDADES.includes(x));
+    if (!ativ.length) {
+      const padrao = ATIVIDADES_POR_ANO[a.ano] || ATIVIDADES;
+      padrao.forEach((atividade) => run('INSERT OR IGNORE INTO conteudos(sala_id,atividade) VALUES(?,?)', a.sala_id, atividade));
+      ativ.push(...ATIVIDADES_POR_ANO[a.ano] || ATIVIDADES);
+    }
+    if (!sorteadoresAtividade.has(id)) sorteadoresAtividade.set(id, criarSorteadorDeAtividades());
+    const at = sorteadoresAtividade.get(id)(ativ);
+    const turma = get('SELECT conteudo_maior_dificuldade FROM salas WHERE id=?', a.sala_id);
+    const nivelBase = get('SELECT nivel FROM perfis WHERE aluno_id=? AND atividade=?', id, at)?.nivel ?? 1;
+    const nivel = Math.min(5, nivelBase + (turma?.conteudo_maior_dificuldade === at ? 1 : 0));
+    const recentes = new Set(all('SELECT pergunta FROM respostas WHERE aluno_id=? AND atividade=? ORDER BY id DESC LIMIT 10', id, at).map((r) => r.pergunta));
+    let pergunta;
+    for (let tentativa = 0; tentativa < 16; tentativa++) {
+      pergunta = gerarPergunta(at, nivel);
+      if (!recentes.has(pergunta.texto)) break;
+    }
+    q = { p: pergunta, nivelReal: nivel, t0: Date.now(), erros: 0, dica: 0, sessaoId: a.sessao_id, combo: comboPorAluno.get(id) || 0 };
+    pendentes.set(id, q);
+  }
+  const { resposta, dica, ...pub } = q.p;
+  res.json({ ...pub, numero: feitas + 1, total: TOTAL || null });
+}));
+
+app.post('/api/resposta', ok((req, res) => {
+  const id = +req.body.alunoId, q = pendentes.get(id);
+  if (!q) throw new Error('Sem pergunta em andamento.');
+  if (get('SELECT status FROM sessoes WHERE id=?', q.sessaoId).status !== 'iniciada') return res.status(409).json({ erro: 'Sessão não está ativa.' });
+  const seg = (Date.now() - q.t0) / 1000;
+  const correta = String(req.body.resposta).trim() === q.p.resposta;
+  if (!correta) q.erros++;
+  const comboAtual = comboPorAluno.get(id) || 0;
+  const comboNovo = correta && q.erros === 0 && q.dica === 0 ? comboAtual + 1 : 0;
+  const out = { correta, erros: q.erros, terminou: correta || q.erros >= 5 };
+  if (!correta) {
+    out.mensagem = mensagemErro(q.erros);
+    if (q.erros >= 3) { out.dica = q.p.dica; q.dica = 1; }
+    if (q.erros >= 5) out.respostaCerta = q.p.resposta;
+  }
+  if (out.terminou) {
+    const pontos = correta ? calcularPontos({ nivel: q.nivelReal, tempoSegundos: seg, tentativas: q.erros + (correta ? 1 : 0), dica: q.dica, correta: true, combo: comboNovo }) : 0;
+    const nivel = ajustarNivel(q.nivelReal, correta, seg, q.erros + 1);
+    run('INSERT INTO respostas(aluno_id,sessao_id,atividade,nivel,pergunta,resposta,correta,tentativas,dica,pontos,tempo) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+      id, q.sessaoId, q.p.atividade, q.nivelReal, q.p.texto, String(req.body.resposta), correta ? 1 : 0, q.erros + (correta ? 1 : 0), q.dica, pontos, seg);
+    run(`INSERT INTO perfis(aluno_id,atividade,nivel,acertos,erros,tempo_medio) VALUES(?,?,?,?,?,?)
+         ON CONFLICT(aluno_id,atividade) DO UPDATE SET nivel=excluded.nivel,
+         tempo_medio=(tempo_medio*(acertos+erros)+excluded.tempo_medio)/(acertos+erros+1),
+         acertos=acertos+excluded.acertos, erros=erros+excluded.erros`, id, q.p.atividade, nivel, correta ? 1 : 0, correta ? 0 : 1, seg);
+    comboPorAluno.set(id, correta && q.erros === 0 && q.dica === 0 ? comboNovo : 0);
+    pendentes.delete(id); sujo = true; out.pontos = pontos;
+    if (TOTAL > 0 && get('SELECT COUNT(*) n FROM respostas WHERE aluno_id=?', id).n >= TOTAL) { out.fim = true; out.resumo = resumo(id); emitirRanking(); }
+  }
+  res.json(out);
+}));
+
+app.get('/api/resumo/:id', ok((req, res) => res.json(resumo(+req.params.id))));
+
+// ---------- API do admin ----------
+app.post('/api/admin/login', ok((req, res) => {
+  const a = get('SELECT * FROM admins WHERE usuario=?', String(req.body.usuario || ''));
+  if (!a || !confere(String(req.body.senha || ''), a.senha_hash)) return res.status(401).json({ erro: 'Usuário ou senha incorretos.' });
+  const t = crypto.randomBytes(24).toString('hex'); tokens.set(t, a.usuario); res.json({ token: t });
+}));
+
+const salasCompletas = () => all('SELECT * FROM salas ORDER BY nome').map(({ periodo, dificuldade, ...s }) => ({ ...s,
+  horarios: all('SELECT dia,hora FROM horarios WHERE sala_id=? ORDER BY dia,hora', s.id),
+  atividades: all('SELECT atividade FROM conteudos WHERE sala_id=?', s.id).map((x) => x.atividade).filter((x) => ATIVIDADES.includes(x)) }));
+function salvarSala(id, b) {
+  const { nome, ano, professor, conteudo_maior_dificuldade = null, horarios = [], atividades = [] } = b;
+  if (!String(nome || '').trim() || ![2, 3].includes(+ano) || !String(professor || '').trim()) throw new Error('Preencha nome, ano e professor.');
+  if (id) { run('UPDATE salas SET nome=?,ano=?,professor=?,conteudo_maior_dificuldade=? WHERE id=?', nome.trim(), +ano, professor.trim(), conteudo_maior_dificuldade || null, id);
+    ['horarios', 'conteudos'].forEach((t) => run(`DELETE FROM ${t} WHERE sala_id=?`, id)); }
+  else id = Number(run('INSERT INTO salas(nome,ano,professor,conteudo_maior_dificuldade) VALUES(?,?,?,?)', nome.trim(), +ano, professor.trim(), conteudo_maior_dificuldade || null).lastInsertRowid);
+  horarios.filter((h) => h.hora).forEach((h) => run('INSERT INTO horarios(sala_id,dia,hora) VALUES(?,?,?)', id, +h.dia, h.hora));
+  const listaAtividades = (atividades.length ? atividades : (ATIVIDADES_POR_ANO[+ano] || ATIVIDADES)).filter((a) => ATIVIDADES.includes(a));
+  listaAtividades.forEach((a) => run('INSERT INTO conteudos(sala_id,atividade) VALUES(?,?)', id, a));
+  return id;
+}
+app.get('/api/admin/salas', auth, ok((q, res) => res.json(salasCompletas())));
+app.post('/api/admin/salas', auth, ok((req, res) => res.json({ id: salvarSala(null, req.body) })));
+app.put('/api/admin/salas/:id', auth, ok((req, res) => res.json({ id: salvarSala(+req.params.id, req.body) })));
+function excluirSala(id) {
+  all("SELECT id FROM sessoes WHERE sala_id=? AND status!='encerrada'", id).forEach((s) => encerrarSessao(s.id));
+  ['horarios', 'conteudos'].forEach((t) => run(`DELETE FROM ${t} WHERE sala_id=?`, id)); run('DELETE FROM salas WHERE id=?', id);
+}
+app.delete('/api/admin/salas', auth, ok((req, res) => {
+  const ids = [...new Set((Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (!ids.length) throw new Error('Selecione pelo menos uma sala.');
+  if (ids.some((id) => !get('SELECT 1 x FROM salas WHERE id=?', id))) throw new Error('Uma ou mais salas não foram encontradas. Atualize a lista e tente novamente.');
+  ids.forEach((id) => excluirSala(id));
+  res.json({ ok: true, removidas: ids.length });
+}));
+app.delete('/api/admin/salas/:id', auth, ok((req, res) => {
+  excluirSala(+req.params.id);
+  res.json({ ok: true });
+}));
+
+app.get('/api/admin/painel', auth, ok((q, res) => res.json(painel())));
+app.post('/api/admin/sessoes', auth, ok((req, res) => {
+  if (!get('SELECT 1 x FROM salas WHERE id=?', +req.body.sala_id)) throw new Error('Sala inválida.');
+  res.json(abrirSessao(+req.body.sala_id));
+}));
+app.post('/api/admin/sessoes/:id/iniciar', auth, ok((req, res) => {
+  const id = +req.params.id;
+  if (run("UPDATE sessoes SET status='iniciada', iniciada_em=? WHERE id=? AND status='aguardando'", new Date().toISOString(), id).changes) {
+    io.to('s' + id).emit('iniciada'); emitirPainel();
+  }
+  res.json({ ok: true });
+}));
+app.post('/api/admin/sessoes/:id/encerrar', auth, ok((req, res) => { encerrarSessao(+req.params.id); res.json({ ok: true }); }));
+
+app.get('/api/admin/alunos', auth, ok((q, res) => res.json(all('SELECT a.id, a.nome, sa.nome AS sala FROM alunos a JOIN salas sa ON sa.id=a.sala_id ORDER BY a.id DESC LIMIT 300'))));
+app.get('/api/admin/ranking', auth, ok((req, res) => {
+  const s = get('SELECT id FROM sessoes WHERE sala_id=? ORDER BY id DESC', +req.query.sala_id);
+  res.json(req.query.sala_id ? (s ? ranking(s.id) : []) : rankingGeral());
+}));
+
+const csv = (rows) => { if (!rows.length) return ''; const k = Object.keys(rows[0]), q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  return '\ufeff' + [k.join(','), ...rows.map((r) => k.map((c) => q(r[c])).join(','))].join('\n'); };
+app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
+  const id = +req.query.id; let rows;
+  if (req.params.tipo === 'aluno') rows = all(`SELECT atividade, nivel, pontos, CASE correta WHEN 1 THEN 'Sim' ELSE 'Não' END AS acertou, ROUND(tempo,1) AS tempo_s, criado_em AS data FROM respostas WHERE aluno_id=? ORDER BY id`, id);
+  else if (req.params.tipo === 'sala') rows = all(`SELECT a.nome AS aluno, COUNT(r.id) AS total_respostas, COALESCE(SUM(r.pontos),0) AS pontos_total, ROUND(AVG(r.tempo),1) AS tempo_medio_s
+    FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id ORDER BY pontos_total DESC`, id);
+  else rows = rankingGeral().map((r, i) => ({ posicao: i + 1, aluno: r.nome, sala: r.sala, pontos: r.pontos }));
+  if (req.query.csv) { res.type('text/csv').send(csv(rows)); } else res.json(rows);
+}));
+
+// ---------- Tempo real ----------
+io.on('connection', (s) => {
+  s.on('entrar', ({ alunoId }) => {
+    const a = get('SELECT sessao_id FROM alunos WHERE id=?', +alunoId); if (!a) return;
+    s.data.sessao = a.sessao_id; s.join('s' + a.sessao_id);
+    if (!online.has(a.sessao_id)) online.set(a.sessao_id, new Set());
+    online.get(a.sessao_id).add(s.id); emitirRanking();
+  });
+  s.on('admin', ({ token }) => { if (tokens.has(token)) { s.join('admin'); s.emit('painel', painel()); } });
+  s.on('disconnect', () => { online.get(s.data.sessao)?.delete(s.id); emitirPainel(); });
+});
+
+const PORT = Number(process.env.PORT) || 3000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Matemática Divertida: http://localhost:${PORT}`);
+  Object.values(os.networkInterfaces()).flat().filter((ip) => ip && ip.family === 'IPv4' && !ip.internal)
+    .forEach((ip) => {
+      console.log(`Rede local (alunos): http://${ip.address}:${PORT}`);
+      console.log(`Rede local (professor): http://${ip.address}:${PORT}/admin.html`);
+    });
+  console.log(`Painel do professor: http://localhost:${PORT}/admin.html`);
+});
