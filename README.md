@@ -28,6 +28,8 @@ O arquivo `render.yaml` configura um Web Service Node.js no plano gratuito. No R
 
 O serviço usa uma única instância. No plano gratuito não há disco persistente: o banco do repositório é incluído no deploy, mas alterações feitas durante a execução podem ser perdidas quando o serviço reiniciar ou for atualizado. O Render fornece HTTPS no endereço publicado.
 
+Se `DB_FILE` estiver definido no Render, as salas, horários e conteúdos do banco incluído no repositório são importados na inicialização para esse banco, sem duplicar itens nem substituir salas remotas com IDs conflitantes. Para publicar salas novas criadas localmente, inclua o banco atualizado em um commit enviado à branch configurada no Render; o app não sincroniza automaticamente as alterações do SQLite de volta ao computador.
+
 As rodadas têm seis perguntas. Ao final, há um desafio de pausa de até 20 segundos: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking.
 
 ## Como testar sem esperar o horário
