@@ -36,7 +36,7 @@
 
 <div id="app" hidden>
 <header><h1>🧮 Matemática Divertida — Admin</h1>
-  <button data-aba="aula" class="sel">Aula</button><button data-aba="salas">Salas</button><button data-aba="rel">Relatórios</button><button id="sair">Sair</button></header>
+  <button data-aba="aula" class="sel">Aula</button><button data-aba="salas">Salas</button><button data-aba="rel">Relatórios</button><button data-aba="dados" id="botao-dados" hidden>Dados de crianças</button><button id="sair">Sair</button></header>
 <main>
   <section id="aba-aula" class="aba ativa">
     <div class="caixa"><div class="linha"><b>Sala:</b> <select id="sel-sala"></select> <button id="abrir">Abrir sessão</button>
@@ -64,6 +64,13 @@
       <select id="r-alvo"></select><button id="r-ver">Ver</button><button id="r-csv">Exportar CSV</button><button id="r-pdf">Exportar PDF</button></div></div>
     <div id="r-resumo"></div><div id="r-tabela"></div>
   </section>
+
+  <section id="aba-dados" class="aba">
+    <div class="caixa"><h2>Dados de crianças</h2>
+      <p>Exclusão permanente. Registros de atividades encerradas apagam respostas, desafios, perfil e histórico de ranking; históricos importados removem somente a linha agregada selecionada. Nomes repetidos em históricos antigos sem identificação individual são anonimizados para evitar excluir dados de outra criança.</p>
+      <button id="dados-atualizar" type="button">Atualizar lista</button><div id="dados-criancas"></div>
+    </div>
+  </section>
 </main></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -72,7 +79,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const NOMES = { soma: 'Soma', subtracao: 'Subtração', multiplicacao: 'Multiplicação', sequencia: 'Sequências numéricas', formas: 'Formas geométricas', medidas: 'Medidas', par_impar: 'Par ou ímpar', maior_menor: 'Maior ou menor', antecessor_sucessor: 'Antecessor e sucessor' };
-let token = sessionStorage.getItem('t'), salas = [];
+let token = sessionStorage.getItem('t'), salas = [], papel = 'admin';
 
 function popularSelects() {
   $('f-conteudo-dificil').innerHTML = '<option value="">Selecione o conteúdo mais difícil</option>' + Object.entries(NOMES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
@@ -103,6 +110,7 @@ document.querySelectorAll('[data-aba]').forEach((b) => (b.onclick = () => {
   document.querySelectorAll('[data-aba]').forEach((x) => x.classList.toggle('sel', x === b));
   document.querySelectorAll('.aba').forEach((a) => a.classList.toggle('ativa', a.id === 'aba-' + b.dataset.aba));
   if (b.dataset.aba === 'rel') alvos();
+  if (b.dataset.aba === 'dados' && papel === 'primario') carregarDadosCriancas().catch((e) => alert(e.message));
 }));
 
 // ---------- Aula ----------
@@ -235,17 +243,44 @@ async function alvos() {
 }
 $('r-tipo').onchange = alvos;
 const url = (csv) => `/api/admin/relatorio/${$('r-tipo').value}?id=${$('r-alvo').value || 0}${csv ? '&csv=1' : ''}`;
+const urlSalaDetalhada = () => `${url(false)}&detalhado=1`;
 const TITULOS_RELATORIO = {
   atividade: 'Conteúdo', aluno: 'Criança', sala: 'Turma', perguntas: 'Perguntas',
   acertos: 'Acertos', percentual_acerto: 'Acerto (%)', pontos_total: 'Pontos',
   pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)'
 };
 $('r-ver').onclick = async () => {
-  const rows = await api(url());
+  const porSala = $('r-tipo').value === 'sala';
+  const dadosSala = porSala ? await api(urlSalaDetalhada()) : null;
+  const rows = porSala ? dadosSala.relatorioAlunos : await api(url());
   $('r-resumo').replaceChildren();
-  if (!rows.length) return ($('r-tabela').innerHTML = `<p>${$('r-tipo').value === 'aluno' ? 'Esta criança ainda não respondeu perguntas.' : 'Sem dados para este relatório.'}</p>`);
+  if (!rows.length) {
+    $('r-tabela').innerHTML = `<p>${$('r-tipo').value === 'aluno' ? 'Esta criança ainda não respondeu perguntas.' : 'Sem dados para este relatório.'}</p>`;
+    return;
+  }
   if (['geral', 'sala'].includes($('r-tipo').value)) {
     $('r-resumo').innerHTML = '<p>Os registros anteriores mostram os totais disponíveis na planilha; acertos e percentuais sem dados de origem aparecem como —.</p>';
+  }
+  if (porSala) {
+    const nomeAtividade = (atividade) => NOMES[atividade] || atividade;
+    const tabela = (cabecalhos, linhas) => `<div style="overflow-x:auto"><table><thead><tr>${cabecalhos.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${linhas.map((linha) => `<tr>${linha.map((celula) => `<td>${esc(celula)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    const porAluno = dadosSala.alunos.map((aluno) => {
+      const atividades = dadosSala.dificuldadesPorAluno.filter((item) => item.aluno_id === aluno.id);
+      if (!atividades.length) return [aluno.nome, 'Sem respostas por atividade', '—', aluno.perguntas];
+      const menorAcerto = Math.min(...atividades.map((item) => item.percentual_acerto));
+      const maisDificeis = atividades.filter((item) => item.percentual_acerto === menorAcerto);
+      return [aluno.nome, maisDificeis.map((item) => nomeAtividade(item.atividade)).join(', '),
+        `${menorAcerto}%`, maisDificeis.reduce((total, item) => total + item.perguntas, 0)];
+    });
+    rows.filter((aluno) => aluno.acertos == null).forEach((aluno) =>
+      porAluno.push([aluno.aluno, 'Não disponível na planilha importada', '—', aluno.perguntas]));
+    $('r-resumo').innerHTML = `<h2>Dificuldades da turma</h2>
+      <p>Menor percentual de acerto indica maior dificuldade. A análise considera respostas individuais registradas; planilhas antigas sem dados por atividade não permitem esse cálculo.</p>
+      <h3>Atividades com menor acerto na sala</h3>${dadosSala.dificuldadesDaSala.length
+        ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Acerto (%)'],
+          dadosSala.dificuldadesDaSala.map((item) => [nomeAtividade(item.atividade), item.perguntas, item.acertos, `${item.percentual_acerto}%`]))
+        : '<p>A sala ainda não tem respostas individuais por atividade.</p>'}
+      <h3>Atividade(s) com menor acerto por criança</h3>${tabela(['Criança', 'Atividade(s) para reforçar', 'Acerto (%)', 'Perguntas nessas atividades'], porAluno)}`;
   }
   if ($('r-tipo').value === 'aluno') {
     const perguntas = rows.reduce((soma, r) => soma + r.perguntas, 0);
@@ -277,12 +312,38 @@ $('r-csv').onclick = async () => {
 };
 $('r-pdf').onclick = async () => { await $('r-ver').onclick(); print(); }; // "Salvar como PDF" na janela de impressão
 
+async function carregarDadosCriancas() {
+  const rows = await api('/api/admin/dados-alunos');
+  $('dados-criancas').innerHTML = rows.length
+    ? `<div style="overflow-x:auto"><table><thead><tr><th>Criança</th><th>Sala</th><th>Origem</th><th>Registro</th><th>Respostas</th><th>Pontos</th><th>Ação</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${esc(r.nome)}</td><td>${esc(r.sala)}</td><td>${r.tipo === 'aluno' ? 'Atividade' : 'Planilha'}</td><td>#${r.id}</td><td>${r.perguntas}</td><td>${r.pontos}</td>
+        <td><button type="button" data-excluir-crianca="${r.id}" data-tipo-crianca="${r.tipo}" data-nome-crianca="${esc(r.nome)}" data-sala-crianca="${esc(r.sala)}">Excluir dados</button></td></tr>`).join('')}
+      </tbody></table></div>`
+    : '<p>Nenhum dado de criança encontrado.</p>';
+}
+$('dados-atualizar').onclick = () => carregarDadosCriancas().catch((e) => alert(e.message));
+$('dados-criancas').onclick = async (event) => {
+  const button = event.target.closest('[data-excluir-crianca]');
+  if (!button) return;
+  const imported = button.dataset.tipoCrianca === 'importado';
+  const message = imported
+    ? `Excluir permanentemente somente o registro importado de ${button.dataset.nomeCrianca}, da sala ${button.dataset.salaCrianca}?`
+    : `Excluir permanentemente os dados de ${button.dataset.nomeCrianca}, da sala ${button.dataset.salaCrianca}, incluindo respostas, desafios, perfil e histórico de ranking?`;
+  if (!confirm(message)) return;
+  try {
+    await api('/api/admin/dados-alunos', 'DELETE', { tipo: button.dataset.tipoCrianca, id: Number(button.dataset.excluirCrianca) });
+    await carregarDadosCriancas();
+  } catch (e) { alert(e.message); }
+};
+
 async function iniciar() {
+  papel = (await api('/api/admin/sessao')).papel;
+  $('botao-dados').hidden = papel !== 'primario';
   popularSelects();
   $('login').hidden = true; $('app').hidden = false; limpar();
   socket.emit('admin', { token }); await carregarSalas(); pintarSessoes(await api('/api/admin/painel'));
 }
-if (token) api('/api/admin/painel').then(iniciar).catch(() => {});
+if (token) iniciar().catch(() => {});
 </script>
 </body>
 </html>

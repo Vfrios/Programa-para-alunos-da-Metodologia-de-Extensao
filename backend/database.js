@@ -10,12 +10,21 @@ if (caminhoBanco !== ':memory:') fs.mkdirSync(path.dirname(caminhoBanco), { recu
 const db = new DatabaseSync(caminhoBanco);
 db.exec(fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8'));
 for (const [tabela, coluna, definicao] of [
+  ['admins', 'papel', `TEXT NOT NULL DEFAULT 'admin' CHECK (papel IN ('admin','primario'))`],
+  ['historico_ranking', 'aluno_id', 'INTEGER'],
   ['horarios', 'fim', 'TEXT'],
   ['sessoes', 'fim_previsto_em', 'TEXT']
 ]) {
   const colunas = new Set(db.prepare(`PRAGMA table_info(${tabela})`).all().map((coluna) => coluna.name));
   if (!colunas.has(coluna)) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${definicao}`);
 }
+db.exec(`UPDATE historico_ranking SET aluno_id=(
+  SELECT MIN(a.id) FROM alunos a
+  WHERE a.sessao_id=historico_ranking.sessao_id AND a.nome=historico_ranking.aluno
+) WHERE aluno_id IS NULL AND (
+  SELECT COUNT(*) FROM alunos a
+  WHERE a.sessao_id=historico_ranking.sessao_id AND a.nome=historico_ranking.aluno
+)=1`);
 const colunasSalas = new Set(db.prepare('PRAGMA table_info(salas)').all().map((coluna) => coluna.name));
 for (const [nome, definicao] of [
   ['periodo', 'TEXT NOT NULL DEFAULT "Manhã"'],
@@ -29,7 +38,7 @@ if (caminhoBanco !== caminhoBase && caminhoBanco !== ':memory:') {
   try {
     const sincronizadas = sincronizarCadastros(db, origem);
     if (Object.values(sincronizadas).some(Boolean)) {
-      console.log(`Dados sincronizados do banco incluído: ${sincronizadas.salasImportadas} salas, ${sincronizadas.horariosImportados} horários, ${sincronizadas.conteudosImportados} conteúdos, ${sincronizadas.importacoesHistoricas} relatórios e ${sincronizadas.alunosHistoricos} registros de alunos.`);
+      console.log(`Dados sincronizados do banco incluído: ${sincronizadas.salasImportadas} salas, ${sincronizadas.horariosImportados} horários, ${sincronizadas.conteudosImportados} conteúdos, ${sincronizadas.importacoesHistoricas} relatórios, ${sincronizadas.alunosHistoricos} registros de alunos adicionados e ${sincronizadas.alunosHistoricosRemovidos} removidos.`);
     }
   } finally {
     origem.close();

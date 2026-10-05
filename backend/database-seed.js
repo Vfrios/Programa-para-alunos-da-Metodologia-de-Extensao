@@ -4,6 +4,7 @@ function sincronizarCadastros(destino, origem) {
     && origem.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='alunos_importados'").get();
   const destinoTemHistorico = destino.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='importacoes_sala'").get()
     && destino.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='alunos_importados'").get();
+  const destinoTemExclusoes = Boolean(destino.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='exclusoes_alunos_importados'").get());
   const salas = origem.prepare(`SELECT id,nome,ano,professor,periodo,dificuldade,conteudo_maior_dificuldade
     FROM salas ORDER BY id`).all();
   const inserirSala = destino.prepare(`INSERT OR IGNORE INTO salas
@@ -20,7 +21,7 @@ function sincronizarCadastros(destino, origem) {
     ? destino.prepare(`INSERT OR IGNORE INTO alunos_importados
       (importacao_id,linha_origem,nome,total_respostas,pontos_total,tempo_medio_s) VALUES(?,?,?,?,?,?)`) : null;
   let salasImportadas = 0, horariosImportados = 0, conteudosImportados = 0;
-  let importacoesHistoricas = 0, alunosHistoricos = 0;
+  let importacoesHistoricas = 0, alunosHistoricos = 0, alunosHistoricosRemovidos = 0;
 
   destino.exec('BEGIN IMMEDIATE');
   try {
@@ -45,8 +46,23 @@ function sincronizarCadastros(destino, origem) {
         for (const importacao of importacoes) {
           importacoesHistoricas += Number(inserirImportacao.run(sala.id, importacao.arquivo, importacao.importado_em).changes);
           const destinoImportacao = buscarImportacao.get(sala.id, importacao.arquivo);
-          const alunos = origem.prepare(`SELECT linha_origem,nome,total_respostas,pontos_total,tempo_medio_s
+          const alunosOrigem = origem.prepare(`SELECT linha_origem,nome,total_respostas,pontos_total,tempo_medio_s
             FROM alunos_importados WHERE importacao_id=? ORDER BY linha_origem`).all(importacao.id);
+          const exclusoes = destinoTemExclusoes
+            ? new Set(destino.prepare(`SELECT linha_origem FROM exclusoes_alunos_importados
+              WHERE sala_id=? AND arquivo=?`).all(sala.id, importacao.arquivo).map((registro) => registro.linha_origem))
+            : new Set();
+          const alunos = alunosOrigem.filter((aluno) => !exclusoes.has(aluno.linha_origem));
+          const linhasAtivas = alunos.map((aluno) => aluno.linha_origem);
+          if (linhasAtivas.length) {
+            const marcadores = linhasAtivas.map(() => '?').join(',');
+            alunosHistoricosRemovidos += Number(destino.prepare(`DELETE FROM alunos_importados
+              WHERE importacao_id=? AND linha_origem NOT IN (${marcadores})`)
+              .run(destinoImportacao.id, ...linhasAtivas).changes);
+          } else {
+            alunosHistoricosRemovidos += Number(destino.prepare('DELETE FROM alunos_importados WHERE importacao_id=?')
+              .run(destinoImportacao.id).changes);
+          }
           for (const aluno of alunos) {
             alunosHistoricos += Number(inserirAlunoImportado.run(destinoImportacao.id, aluno.linha_origem,
               aluno.nome, aluno.total_respostas, aluno.pontos_total, aluno.tempo_medio_s).changes);
@@ -60,7 +76,7 @@ function sincronizarCadastros(destino, origem) {
     throw error;
   }
 
-  return { salasImportadas, horariosImportados, conteudosImportados, importacoesHistoricas, alunosHistoricos };
+  return { salasImportadas, horariosImportados, conteudosImportados, importacoesHistoricas, alunosHistoricos, alunosHistoricosRemovidos };
 }
 
 module.exports = { sincronizarCadastros };

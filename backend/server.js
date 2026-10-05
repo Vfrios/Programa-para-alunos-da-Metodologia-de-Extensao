@@ -22,10 +22,20 @@ const ok = (fn) => (req, res) => { try { fn(req, res); } catch (e) { res.status(
 
 // ---------- Admin: senha criptografada (scrypt) + token de sessão ----------
 const tinhaAdmin = Boolean(get('SELECT 1 x FROM admins'));
-configurarAdmin(db, process.env.ADMIN_USER || 'admin', process.env.ADMIN_PASS || 'admin123', process.env.NODE_ENV === 'production');
+configurarAdmin(db, process.env.ADMIN_USER || 'admin', process.env.ADMIN_PASS || 'admin123', process.env.NODE_ENV === 'production', {
+  usuario: process.env.PRIMARY_ADMIN_USER,
+  senha: process.env.PRIMARY_ADMIN_PASS,
+});
 if (!tinhaAdmin && process.env.NODE_ENV !== 'production') console.log('Admin criado. Usuário padrão: admin / admin123 (troque com ADMIN_USER e ADMIN_PASS).');
 const tokens = new Map();
 const auth = (req, res, next) => (tokens.has(req.get('x-token')) ? next() : res.status(401).json({ erro: 'Faça login.' }));
+const authPrimario = (req, res, next) => {
+  if (!tokens.has(req.get('x-token'))) return res.status(401).json({ erro: 'Faça login.' });
+  if (tokens.get(req.get('x-token')).papel !== 'primario') {
+    return res.status(403).json({ erro: 'Apenas o administrador primário pode excluir dados de crianças.' });
+  }
+  next();
+};
 
 // ---------- Estado em memória ----------
 const pendentes = new Map();   // alunoId -> pergunta em andamento (resposta certa nunca vai ao navegador)
@@ -102,7 +112,7 @@ function encerrarSessao(id) {
   run("UPDATE sessoes SET status='encerrada', encerrada_em=? WHERE id=?", new Date().toISOString(), id);
   const rk = ranking(id);
   rk.forEach((r, i) => {
-    run('INSERT INTO historico_ranking(sessao_id,posicao,aluno,pontos) VALUES(?,?,?,?)', id, i + 1, r.nome, r.pontos);
+    run('INSERT INTO historico_ranking(sessao_id,aluno_id,posicao,aluno,pontos) VALUES(?,?,?,?,?)', id, r.id, i + 1, r.nome, r.pontos);
     const m = resumo(r.id); pendentes.delete(r.id); desafiosPendentes.delete(r.id); sorteadoresModelo.delete(r.id);
     run('INSERT INTO premiacoes(aluno_id,sessao_id,premio,nota,media) VALUES(?,?,?,?,?)', r.id, id, m.premio, m.nota, m.media);
   });
@@ -279,8 +289,9 @@ app.get('/api/resumo/:id', ok((req, res) => res.json(resumo(+req.params.id))));
 app.post('/api/admin/login', ok((req, res) => {
   const a = get('SELECT * FROM admins WHERE usuario=?', String(req.body.usuario || ''));
   if (!a || !confere(String(req.body.senha || ''), a.senha_hash)) return res.status(401).json({ erro: 'Usuário ou senha incorretos.' });
-  const t = crypto.randomBytes(24).toString('hex'); tokens.set(t, a.usuario); res.json({ token: t });
+  const t = crypto.randomBytes(24).toString('hex'); tokens.set(t, { usuario: a.usuario, papel: a.papel }); res.json({ token: t, papel: a.papel });
 }));
+app.get('/api/admin/sessao', auth, ok((req, res) => res.json({ papel: tokens.get(req.get('x-token')).papel })));
 
 const salasCompletas = () => all('SELECT * FROM salas ORDER BY nome').map(({ periodo, dificuldade, ...s }) => ({ ...s,
   horarios: all('SELECT dia,hora,fim FROM horarios WHERE sala_id=? ORDER BY dia,hora', s.id),
@@ -348,6 +359,63 @@ app.post('/api/admin/sessoes/:id/iniciar', auth, ok((req, res) => {
 app.post('/api/admin/sessoes/:id/encerrar', auth, ok((req, res) => { encerrarSessao(+req.params.id); res.json({ ok: true }); }));
 
 app.get('/api/admin/alunos', auth, ok((q, res) => res.json(all('SELECT a.id, a.nome, sa.nome AS sala FROM alunos a JOIN salas sa ON sa.id=a.sala_id ORDER BY a.id DESC LIMIT 300'))));
+app.get('/api/admin/dados-alunos', authPrimario, ok((q, res) => res.json(all(`SELECT tipo,id,nome,sala,perguntas,pontos FROM (
+  SELECT 'aluno' AS tipo,a.id,a.nome,sa.nome AS sala,COUNT(r.id) AS perguntas,
+    COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
+  FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id
+  GROUP BY a.id
+  UNION ALL
+  SELECT 'importado',ai.id,ai.nome,sa.nome,ai.total_respostas,ai.pontos_total
+  FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
+  JOIN salas sa ON sa.id=i.sala_id
+) ORDER BY sala,nome`))));
+app.delete('/api/admin/dados-alunos', authPrimario, ok((req, res) => {
+  const tipo = String(req.body.tipo || '');
+  const id = Number(req.body.id);
+  if (!['aluno', 'importado'].includes(tipo) || !Number.isSafeInteger(id) || id < 1) {
+    throw new Error('Selecione um registro válido.');
+  }
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (tipo === 'importado') {
+      const importado = get(`SELECT ai.id,ai.linha_origem,i.sala_id,i.arquivo
+        FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE ai.id=?`, id);
+      if (!importado) throw new Error('Registro não encontrado; atualize a lista e tente novamente.');
+      run(`INSERT OR IGNORE INTO exclusoes_alunos_importados(sala_id,arquivo,linha_origem)
+        VALUES(?,?,?)`, importado.sala_id, importado.arquivo, importado.linha_origem);
+      if (run('DELETE FROM alunos_importados WHERE id=?', id).changes !== 1) {
+        throw new Error('Registro não encontrado; atualize a lista e tente novamente.');
+      }
+    } else {
+      const aluno = get(`SELECT a.id,a.nome,a.sessao_id,se.status FROM alunos a
+        JOIN sessoes se ON se.id=a.sessao_id WHERE a.id=?`, id);
+      if (!aluno) throw new Error('Registro não encontrado; atualize a lista e tente novamente.');
+      if (aluno.status !== 'encerrada') throw new Error('Encerre a sessão antes de excluir os dados desta criança.');
+      run('DELETE FROM respostas WHERE aluno_id=?', id);
+      run('DELETE FROM desafios WHERE aluno_id=?', id);
+      run('DELETE FROM premiacoes WHERE aluno_id=?', id);
+      run('DELETE FROM perfis WHERE aluno_id=?', id);
+      run('DELETE FROM historico_ranking WHERE aluno_id=?', id);
+      run(`UPDATE historico_ranking SET aluno='Aluno removido'
+        WHERE aluno_id IS NULL AND sessao_id=? AND aluno=? AND (
+          SELECT COUNT(*) FROM alunos WHERE sessao_id=? AND nome=?
+        )>1`, aluno.sessao_id, aluno.nome, aluno.sessao_id, aluno.nome);
+      if (run('DELETE FROM alunos WHERE id=?', id).changes !== 1) throw new Error('O registro mudou durante a exclusão.');
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+
+  if (tipo === 'aluno') {
+    pendentes.delete(id); desafiosPendentes.delete(id); comboPorAluno.delete(id);
+    sorteadoresAtividade.delete(id); sorteadoresModelo.delete(id);
+  }
+  emitirRanking();
+  res.json({ ok: true });
+}));
 app.get('/api/admin/ranking', auth, ok((req, res) => {
   const s = get('SELECT id FROM sessoes WHERE sala_id=? ORDER BY id DESC', +req.query.sala_id);
   res.json(req.query.sala_id ? (s ? ranking(s.id) : []) : rankingGeral());
@@ -356,7 +424,7 @@ app.get('/api/admin/ranking', auth, ok((req, res) => {
 const csv = (rows) => { if (!rows.length) return ''; const k = Object.keys(rows[0]), q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   return '\ufeff' + [k.join(','), ...rows.map((r) => k.map((c) => q(r[c])).join(','))].join('\n'); };
 app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
-  const id = +req.query.id; let rows;
+  const id = +req.query.id; let rows, detalhesSala;
   if (req.params.tipo === 'aluno') rows = all(`SELECT atividade, COUNT(*) AS perguntas, SUM(correta) AS acertos,
       ROUND(100.0 * SUM(correta) / COUNT(*), 1) AS percentual_acerto,
       SUM(pontos) AS pontos_total, ROUND(AVG(tempo),1) AS tempo_medio_s
@@ -385,6 +453,21 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
       JOIN salas s ON s.id=i.sala_id
     ) ORDER BY pontos DESC, aluno LIMIT 50`);
+  if (req.params.tipo === 'sala' && req.query.detalhado === '1') {
+    detalhesSala = {
+      alunos: all(`SELECT a.id,a.nome,COUNT(r.id) AS perguntas FROM alunos a
+        LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id ORDER BY a.nome`, id),
+      dificuldadesPorAluno: all(`SELECT a.id AS aluno_id,a.nome AS aluno,r.atividade,COUNT(*) AS perguntas,
+          ROUND(100.0 * SUM(r.correta) / COUNT(*),1) AS percentual_acerto
+        FROM alunos a JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=?
+        GROUP BY a.id,r.atividade ORDER BY a.nome,percentual_acerto,r.atividade`, id),
+      dificuldadesDaSala: all(`SELECT r.atividade,COUNT(*) AS perguntas,
+          SUM(r.correta) AS acertos,ROUND(100.0 * SUM(r.correta) / COUNT(*),1) AS percentual_acerto
+        FROM respostas r JOIN alunos a ON a.id=r.aluno_id
+        WHERE a.sala_id=? GROUP BY r.atividade ORDER BY percentual_acerto,perguntas DESC,r.atividade`, id)
+    };
+    return res.json({ ...detalhesSala, relatorioAlunos: rows });
+  }
   if (req.query.csv) { res.type('text/csv').send(csv(rows)); } else res.json(rows);
 }));
 
