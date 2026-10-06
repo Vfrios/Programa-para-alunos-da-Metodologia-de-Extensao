@@ -23,11 +23,18 @@ const ok = (fn) => (req, res) => { try { fn(req, res); } catch (e) { res.status(
 
 // ---------- Admin: senha criptografada (scrypt) + token de sessão ----------
 const tinhaAdmin = Boolean(get('SELECT 1 x FROM admins'));
+const usuarioPrimario = process.env.PRIMARY_ADMIN_USER
+  || (process.env.NODE_ENV === 'production' ? undefined : 'vitor');
+const senhaPrimaria = process.env.PRIMARY_ADMIN_PASS
+  || (process.env.NODE_ENV === 'production' ? undefined : 'adm1');
 configurarAdmin(db, process.env.ADMIN_USER || 'admin', process.env.ADMIN_PASS || 'admin123', process.env.NODE_ENV === 'production', {
-  usuario: process.env.PRIMARY_ADMIN_USER,
-  senha: process.env.PRIMARY_ADMIN_PASS,
+  usuario: usuarioPrimario,
+  senha: senhaPrimaria,
 });
-if (!tinhaAdmin && process.env.NODE_ENV !== 'production') console.log('Admin criado. Usuário padrão: admin / admin123 (troque com ADMIN_USER e ADMIN_PASS).');
+if (!tinhaAdmin && process.env.NODE_ENV !== 'production') {
+  console.log('Admin criado. Usuário padrão: admin / admin123 (troque com ADMIN_USER e ADMIN_PASS).');
+  console.log('Admin primário local: vitor / adm1 (troque com PRIMARY_ADMIN_USER e PRIMARY_ADMIN_PASS).');
+}
 const tokens = new Map();
 const auth = (req, res, next) => (tokens.has(req.get('x-token')) ? next() : res.status(401).json({ erro: 'Faça login.' }));
 const authPrimario = (req, res, next) => {
@@ -377,6 +384,19 @@ app.get('/api/admin/dados-alunos', authPrimario, ok((q, res) => res.json(all(`SE
   FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
   JOIN salas sa ON sa.id=i.sala_id
 ) ORDER BY sala,nome`))));
+app.patch('/api/admin/dados-alunos', authPrimario, ok((req, res) => {
+  const tipo = String(req.body.tipo || '');
+  const id = Number(req.body.id);
+  const nome = String(req.body.nome || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+  if (!['aluno', 'importado'].includes(tipo) || !Number.isSafeInteger(id) || id < 1 || !nome) {
+    throw new Error('Informe um nome válido.');
+  }
+  const tabela = tipo === 'aluno' ? 'alunos' : 'alunos_importados';
+  if (run(`UPDATE ${tabela} SET nome=? WHERE id=?`, nome, id).changes !== 1) {
+    throw new Error('Registro não encontrado; atualize a lista e tente novamente.');
+  }
+  res.json({ ok: true, nome });
+}));
 app.delete('/api/admin/dados-alunos', authPrimario, ok((req, res) => {
   const tipo = String(req.body.tipo || '');
   const id = Number(req.body.id);
@@ -593,7 +613,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
     adicionaisPdf.push('Atividade(s) com menor acerto por aluno:');
     porAlunoPdf.forEach((itens, aluno) => {
       const comDificuldade = itens.filter((item) => item.percentual_acerto < 100);
-      if (!comDificuldade.length) return adicionaisPdf.push(`${aluno}: Sem dificuldade identificada`);
+      if (!comDificuldade.length) return adicionaisPdf.push(`${aluno}: Sem dificuldade identificada (${itens.length} atividades, todas com 100% de acerto)`);
       const menor = Math.min(...comDificuldade.map((item) => item.percentual_acerto));
       const nomes = { soma: 'Soma', subtracao: 'Subtração', sequencia: 'Sequências numéricas', formas: 'Formas geométricas', par_impar: 'Par ou ímpar', maior_menor: 'Maior ou menor', antecessor_sucessor: 'Antecessor e sucessor' };
       adicionaisPdf.push(`${aluno}: ${comDificuldade.filter((item) => item.percentual_acerto === menor).map((item) => `${nomes[item.atividade] || item.atividade} (${menor}%)`).join(', ')}`);

@@ -16,6 +16,7 @@ O backend usa o modo watch do Node.js e reinicia automaticamente quando arquivos
 - Em outros dispositivos na mesma rede Wi-Fi/cabeada: use o endereço `Rede local` mostrado no terminal, por exemplo `http://192.168.0.25:3000`.
 - Painel do professor: acrescente `/admin.html` ao mesmo endereço. Login padrão `admin` / `admin123`.
   (troque com `$env:ADMIN_USER="..."; $env:ADMIN_PASS="..."` antes do primeiro start; a senha é gravada criptografada)
+- No ambiente local, o login do administrador primário é `vitor` / `adm1`. Ele pode acessar a aba **Dados de crianças**, editar nomes e excluir registros. Para trocar essas credenciais localmente, defina `$env:PRIMARY_ADMIN_USER` e `$env:PRIMARY_ADMIN_PASS` antes de iniciar.
 
 Todos os dispositivos devem estar na mesma rede e acessar o mesmo computador/servidor. Se o Windows perguntar, permita Node.js na rede privada. O servidor atende vários alunos simultaneamente; mantenha apenas uma instância em execução para a turma.
 
