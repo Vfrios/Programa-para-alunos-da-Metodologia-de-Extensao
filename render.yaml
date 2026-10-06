@@ -2,12 +2,16 @@ services:
   - type: web
     name: matematica-divertida
     runtime: node
-    plan: free
+    plan: starter
     region: oregon
     numInstances: 1
     buildCommand: npm install --prefix backend --omit=dev
     startCommand: npm start --prefix backend
     healthCheckPath: /api/estado
+    disk:
+      name: matematica-dados
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -17,3 +21,5 @@ services:
         value: professor
       - key: ADMIN_PASS
         generateValue: true
+      - key: DB_FILE
+        value: /var/data/matematica.db
