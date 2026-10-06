@@ -3,6 +3,7 @@ const express = require('express');
 const PDFDocument = require('pdfkit');
 const { Server } = require('socket.io');
 const db = require('./database');
+const { serializeDatabase, restoreDatabase } = require('./engine/database-backup');
 const { configurarAdmin, confere } = require('./engine/admin');
 const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades, criarSorteadorDeModelos } = require('./engine/gerador');
 const { criarDesafio } = require('./engine/desafios');
@@ -40,7 +41,7 @@ const auth = (req, res, next) => (tokens.has(req.get('x-token')) ? next() : res.
 const authPrimario = (req, res, next) => {
   if (!tokens.has(req.get('x-token'))) return res.status(401).json({ erro: 'Faça login.' });
   if (tokens.get(req.get('x-token')).papel !== 'primario') {
-    return res.status(403).json({ erro: 'Apenas o administrador primário pode excluir dados de crianças.' });
+    return res.status(403).json({ erro: 'Apenas o administrador primário pode executar esta ação.' });
   }
   next();
 };
@@ -307,6 +308,34 @@ app.post('/api/admin/login', ok((req, res) => {
   const t = crypto.randomBytes(24).toString('hex'); tokens.set(t, { usuario: a.usuario, papel: a.papel }); res.json({ token: t, papel: a.papel });
 }));
 app.get('/api/admin/sessao', auth, ok((req, res) => res.json({ papel: tokens.get(req.get('x-token')).papel })));
+app.get('/api/admin/backup', authPrimario, ok((req, res) => {
+  const data = new Date().toISOString().replace(/[:.]/g, '-');
+  res.set({
+    'Content-Type': 'application/vnd.sqlite3',
+    'Content-Disposition': `attachment; filename="matematica-backup-${data}.sqlite"`,
+    'Cache-Control': 'no-store',
+  });
+  res.send(serializeDatabase(db));
+}));
+app.put('/api/admin/backup', authPrimario,
+  express.raw({ type: 'application/vnd.sqlite3', limit: '100mb' }),
+  ok((req, res) => {
+    if (get("SELECT 1 AS ativa FROM sessoes WHERE status!='encerrada' LIMIT 1")) {
+      return res.status(409).json({ erro: 'Encerre todas as aulas antes de restaurar um backup.' });
+    }
+    const resultado = restoreDatabase(db, req.body);
+    pendentes.clear();
+    online.clear();
+    comboPorAluno.clear();
+    sorteadoresAtividade.clear();
+    sorteadoresModelo.clear();
+    desafiosPendentes.clear();
+    proximoDesafioPorAluno.clear();
+    tokens.clear();
+    io.emit('estado');
+    emitirPainel();
+    res.json({ ok: true, ...resultado });
+  }));
 
 const salasCompletas = () => all('SELECT * FROM salas ORDER BY nome').map(({ periodo, dificuldade, ...s }) => ({ ...s,
   horarios: all('SELECT dia,hora,fim FROM horarios WHERE sala_id=? ORDER BY dia,hora', s.id),

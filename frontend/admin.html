@@ -36,7 +36,7 @@
 
 <div id="app" hidden>
 <header><h1>🧮 Matemática Divertida — Admin</h1>
-  <button data-aba="aula" class="sel">Aula</button><button data-aba="salas">Salas</button><button data-aba="rel">Relatórios</button><button data-aba="dados" id="botao-dados" hidden>Dados de crianças</button><button id="sair">Sair</button></header>
+  <button data-aba="aula" class="sel">Aula</button><button data-aba="salas">Salas</button><button data-aba="rel">Relatórios</button><button data-aba="dados" id="botao-dados" hidden>Dados de crianças</button><button data-aba="backup" id="botao-backup" hidden>Backup</button><button id="sair">Sair</button></header>
 <main>
   <section id="aba-aula" class="aba ativa">
     <div class="caixa"><div class="linha"><b>Sala:</b> <select id="sel-sala"></select> <button id="abrir">Abrir sessão</button>
@@ -84,6 +84,19 @@
     <div class="caixa"><h2>Dados de crianças</h2>
       <p>Exclusão permanente. Registros de atividades encerradas apagam respostas, desafios, perfil e histórico de ranking; históricos importados removem somente a linha agregada selecionada. Nomes repetidos em históricos antigos sem identificação individual são anonimizados para evitar excluir dados de outra criança.</p>
       <button id="dados-atualizar" type="button">Atualizar lista</button><div id="dados-criancas"></div>
+    </div>
+  </section>
+
+  <section id="aba-backup" class="aba">
+    <div class="caixa">
+      <h2>Backup do banco de dados</h2>
+      <p>Exporte um arquivo SQLite com os dados de todas as salas e aulas: cadastros, sessões, respostas, pontuação, relatórios e configurações. Guarde o arquivo em um local seguro.</p>
+      <div class="linha"><button id="backup-exportar" type="button">Baixar backup</button></div>
+      <hr>
+      <p><b>Restaurar substitui todos os dados atuais</b> pelos dados do arquivo selecionado. Encerre todas as aulas antes de restaurar. Recomendamos baixar um backup atual antes de continuar.</p>
+      <div class="linha"><input id="backup-arquivo" type="file" accept=".sqlite,.db,application/vnd.sqlite3" aria-label="Arquivo de backup SQLite">
+        <button id="backup-importar" type="button">Restaurar backup</button></div>
+      <p id="backup-status" role="status"></p>
     </div>
   </section>
 </main></div>
@@ -361,6 +374,55 @@ $('r-pdf').onclick = async () => {
   a.download = `relatorio-${$('r-tipo').value}.pdf`; a.click(); URL.revokeObjectURL(a.href);
 };
 
+$('backup-exportar').onclick = async () => {
+  try {
+    const response = await fetch('/api/admin/backup', { headers: { 'x-token': token } });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.erro || 'Não foi possível baixar o backup.');
+    }
+    const urlArquivo = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = urlArquivo;
+    link.download = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'matematica-backup.sqlite';
+    link.click();
+    URL.revokeObjectURL(urlArquivo);
+    $('backup-status').textContent = 'Backup baixado.';
+  } catch (error) {
+    $('backup-status').textContent = error.message;
+    alert(`Não foi possível restaurar o backup.\n\n${error.message}`);
+  }
+};
+$('backup-importar').onclick = async () => {
+  const arquivo = $('backup-arquivo').files[0];
+  if (!arquivo) {
+    $('backup-status').textContent = 'Selecione um arquivo de backup SQLite.';
+    return;
+  }
+  const tamanhoMb = (arquivo.size / (1024 * 1024)).toFixed(2);
+  if (!confirm(`CONFIRMAR TROCA DE DADOS\n\nO banco atual será substituído pelos dados do arquivo:\n${arquivo.name} (${tamanhoMb} MB)\n\nEssa ação substitui todos os dados de salas, aulas, crianças, respostas e relatórios. Encerre todas as aulas e confirme que salvou um backup atual.\n\nDeseja trocar os dados agora?`)) return;
+  $('backup-status').textContent = 'Validando e restaurando backup…';
+  try {
+    const response = await fetch('/api/admin/backup', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/vnd.sqlite3', 'x-token': token },
+      body: arquivo,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.erro || 'Não foi possível restaurar o backup.');
+    sessionStorage.removeItem('t');
+    const tabelas = body.diferencas || [];
+    const resumo = body.dadosAlterados
+      ? `Houve dados alterados: sim.\n${body.tabelasAlteradas} tabela(s) tinham conteúdo diferente antes da restauração.`
+      : 'Houve dados alterados: não. O backup contém os mesmos dados que já estavam no sistema.';
+    alert(`Troca de dados concluída.\n\n${resumo}\n\nEntre novamente com as credenciais presentes no backup.`);
+    $('backup-status').textContent = `Restauração concluída. Dados alterados: ${body.dadosAlterados ? 'sim' : 'não'} (${body.tabelasAlteradas} tabelas diferentes de ${tabelas.length}).`;
+    location.reload();
+  } catch (error) {
+    $('backup-status').textContent = error.message;
+  }
+};
+
 async function carregarDadosCriancas() {
   const rows = await api('/api/admin/dados-alunos');
   $('dados-criancas').innerHTML = rows.length
@@ -398,6 +460,7 @@ $('dados-criancas').onclick = async (event) => {
 async function iniciar() {
   papel = (await api('/api/admin/sessao')).papel;
   $('botao-dados').hidden = papel !== 'primario';
+  $('botao-backup').hidden = papel !== 'primario';
   popularSelects();
   $('login').hidden = true; $('app').hidden = false; limpar();
   socket.emit('admin', { token }); await carregarSalas(); pintarSessoes(await api('/api/admin/painel'));
