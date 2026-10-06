@@ -10,6 +10,8 @@ pnpm install
 pnpm start
 ```
 
+O backend usa o modo watch do Node.js e reinicia automaticamente quando arquivos JavaScript do servidor são alterados. O Node 22.13+ é necessário.
+
 - No próprio computador: [http://localhost:3000](http://localhost:3000)
 - Em outros dispositivos na mesma rede Wi-Fi/cabeada: use o endereço `Rede local` mostrado no terminal, por exemplo `http://192.168.0.25:3000`.
 - Painel do professor: acrescente `/admin.html` ao mesmo endereço. Login padrão `admin` / `admin123`.
@@ -28,17 +30,17 @@ O arquivo `render.yaml` configura um Web Service Node.js no plano gratuito. No R
 
 Para ativar o acesso exclusivo de administração primária, configure no painel do Render as variáveis secretas `PRIMARY_ADMIN_USER` e `PRIMARY_ADMIN_PASS`, com credenciais diferentes das variáveis `ADMIN_USER` e `ADMIN_PASS`. Somente esse login separado vê a aba **Dados de crianças** e pode excluir registros; a API também recusa exclusões feitas por administradores comuns. Se as duas variáveis primárias não estiverem configuradas, a exclusão fica desativada. Não coloque essas senhas no código nem em commits.
 
-O serviço usa uma única instância. No plano gratuito não há disco persistente: o banco do repositório é incluído no deploy, mas alterações feitas durante a execução podem ser perdidas quando o serviço reiniciar ou for atualizado. O Render fornece HTTPS no endereço publicado.
+O serviço usa uma única instância. Para não perder aulas, configure um Persistent Disk no Render montado em `/var/data` e defina `DB_FILE=/var/data/matematica.db`; sem esse disco, o plano gratuito pode perder alterações quando o serviço reiniciar ou for atualizado. O SQLite também usa WAL e `synchronous=FULL` para confirmar as gravações com segurança. O Render fornece HTTPS no endereço publicado.
 
 Se `DB_FILE` estiver definido no Render, as salas, horários, conteúdos e registros agregados do banco incluído no repositório são sincronizados na inicialização para esse banco, sem duplicar itens nem substituir salas remotas com IDs conflitantes. Registros removidos da fonte deixam de aparecer também no histórico sincronizado. Para publicar salas novas criadas localmente, inclua o banco atualizado em um commit enviado à branch configurada no Render; o app não sincroniza automaticamente as alterações do SQLite de volta ao computador.
 
-As rodadas têm seis perguntas. Ao final, há um desafio de pausa: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking. Para o 2º ano, os desafios usam níveis mais simples, memória com dois pares e 30 segundos; para o 3º ano, permanecem três pares e 20 segundos.
+Após uma quantidade aleatória de perguntas, sempre a partir da 7ª, há um desafio de pausa: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking. Para o 2º ano, os desafios usam níveis mais simples, memória com dois pares e 30 segundos; para o 3º ano, permanecem três pares e 15 segundos.
 
 No painel do professor, cada sessão em andamento mostra o tempo decorrido desde o início da atividade. Os relatórios por criança incluem perguntas respondidas, acertos, percentual médio de acerto, pontos e desempenho por conteúdo. O relatório **Por sala** também destaca, por criança, os conteúdos com menor percentual de acerto e lista os conteúdos de menor acerto da turma. Esses indicadores usam respostas por atividade registradas no sistema; históricos agregados de planilhas sem informação por atividade aparecem como indisponíveis, sem estimativas.
 
 Cada conteúdo possui 30 modelos diferentes de enunciado. O sistema os embaralha e percorre os 30 antes de repetir um modelo para a mesma criança e conteúdo; os números, sequências, figuras e objetos também continuam variando conforme a atividade e o nível.
 
-Os dados agregados das planilhas entram nos relatórios **Geral** e **Por sala**, junto com os dados das atividades atuais. Eles estão no banco incluído no deploy e também são sincronizados para um banco remoto configurado por `DB_FILE` na inicialização do Render, sem duplicar registros. Arquivos que trazem somente totais, pontos e tempo médio não geram acertos ou respostas individuais; médias de tempo ausentes permanecem indisponíveis.
+Os dados agregados das planilhas entram nos relatórios **Geral** e **Por sala**, junto com os dados das atividades atuais. Eles estão no banco incluído no deploy e também são sincronizados para um banco remoto configurado por `DB_FILE` na inicialização do Render, sem duplicar registros. As quatro planilhas aparecem como **Planilha** nos relatórios. Os dados por atividade são agregados e não representam respostas individuais reais; médias de tempo ausentes permanecem indisponíveis.
 
 ## Como testar sem esperar o horário
 

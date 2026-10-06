@@ -5,6 +5,12 @@ function sincronizarCadastros(destino, origem) {
   const destinoTemHistorico = destino.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='importacoes_sala'").get()
     && destino.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='alunos_importados'").get();
   const destinoTemExclusoes = Boolean(destino.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='exclusoes_alunos_importados'").get());
+  const origemTemMetricas = new Set(origem.prepare('PRAGMA table_info(alunos_importados)').all().map((coluna) => coluna.name));
+  const destinoTemMetricas = new Set(destino.prepare('PRAGMA table_info(alunos_importados)').all().map((coluna) => coluna.name));
+  const sincronizaMetricas = ['acertos', 'percentual_acerto', 'estimado'].every((coluna) => origemTemMetricas.has(coluna) && destinoTemMetricas.has(coluna));
+  const origemTemAtividades = Boolean(origem.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='alunos_importados_atividades'").get());
+  const destinoTemAtividades = Boolean(destino.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='alunos_importados_atividades'").get());
+  const sincronizaAtividades = origemTemAtividades && destinoTemAtividades;
   const salas = origem.prepare(`SELECT id,nome,ano,professor,periodo,dificuldade,conteudo_maior_dificuldade
     FROM salas ORDER BY id`).all();
   const inserirSala = destino.prepare(`INSERT OR IGNORE INTO salas
@@ -18,8 +24,13 @@ function sincronizarCadastros(destino, origem) {
   const buscarImportacao = origemTemHistorico && destinoTemHistorico
     ? destino.prepare('SELECT id FROM importacoes_sala WHERE sala_id=? AND arquivo=?') : null;
   const inserirAlunoImportado = origemTemHistorico && destinoTemHistorico
-    ? destino.prepare(`INSERT OR IGNORE INTO alunos_importados
+    ? destino.prepare(sincronizaMetricas ? `INSERT OR IGNORE INTO alunos_importados
+      (importacao_id,linha_origem,nome,total_respostas,pontos_total,tempo_medio_s,acertos,percentual_acerto,estimado) VALUES(?,?,?,?,?,?,?,?,?)`
+      : `INSERT OR IGNORE INTO alunos_importados
       (importacao_id,linha_origem,nome,total_respostas,pontos_total,tempo_medio_s) VALUES(?,?,?,?,?,?)`) : null;
+  const inserirAtividadeImportada = sincronizaAtividades
+    ? destino.prepare(`INSERT OR IGNORE INTO alunos_importados_atividades
+      (aluno_importado_id,atividade,perguntas,acertos,percentual_acerto,pontos_total,tempo_medio_s) VALUES(?,?,?,?,?,?,?)`) : null;
   let salasImportadas = 0, horariosImportados = 0, conteudosImportados = 0;
   let importacoesHistoricas = 0, alunosHistoricos = 0, alunosHistoricosRemovidos = 0;
 
@@ -46,7 +57,7 @@ function sincronizarCadastros(destino, origem) {
         for (const importacao of importacoes) {
           importacoesHistoricas += Number(inserirImportacao.run(sala.id, importacao.arquivo, importacao.importado_em).changes);
           const destinoImportacao = buscarImportacao.get(sala.id, importacao.arquivo);
-          const alunosOrigem = origem.prepare(`SELECT linha_origem,nome,total_respostas,pontos_total,tempo_medio_s
+          const alunosOrigem = origem.prepare(`SELECT id,linha_origem,nome,total_respostas,pontos_total,tempo_medio_s${sincronizaMetricas ? ',acertos,percentual_acerto,estimado' : ''}
             FROM alunos_importados WHERE importacao_id=? ORDER BY linha_origem`).all(importacao.id);
           const exclusoes = destinoTemExclusoes
             ? new Set(destino.prepare(`SELECT linha_origem FROM exclusoes_alunos_importados
@@ -64,8 +75,19 @@ function sincronizarCadastros(destino, origem) {
               .run(destinoImportacao.id).changes);
           }
           for (const aluno of alunos) {
-            alunosHistoricos += Number(inserirAlunoImportado.run(destinoImportacao.id, aluno.linha_origem,
-              aluno.nome, aluno.total_respostas, aluno.pontos_total, aluno.tempo_medio_s).changes);
+            const parametros = [destinoImportacao.id, aluno.linha_origem, aluno.nome, aluno.total_respostas,
+              aluno.pontos_total, aluno.tempo_medio_s];
+            if (sincronizaMetricas) parametros.push(aluno.acertos, aluno.percentual_acerto, aluno.estimado);
+            alunosHistoricos += Number(inserirAlunoImportado.run(...parametros).changes);
+            if (sincronizaAtividades) {
+              const destinoAluno = destino.prepare('SELECT id FROM alunos_importados WHERE importacao_id=? AND linha_origem=?')
+                .get(destinoImportacao.id, aluno.linha_origem);
+              origem.prepare(`SELECT atividade,perguntas,acertos,percentual_acerto,pontos_total,tempo_medio_s
+                FROM alunos_importados_atividades WHERE aluno_importado_id=?`).all(aluno.id)
+                .forEach((atividade) => inserirAtividadeImportada.run(destinoAluno.id, atividade.atividade,
+                  atividade.perguntas, atividade.acertos, atividade.percentual_acerto,
+                  atividade.pontos_total, atividade.tempo_medio_s));
+            }
           }
         }
       }

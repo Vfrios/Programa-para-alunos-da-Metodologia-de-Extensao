@@ -60,7 +60,7 @@
 
   <section id="aba-rel" class="aba">
     <div class="caixa sem-print"><div class="linha">
-      <select id="r-tipo"><option value="geral">Geral (ranking de todos)</option><option value="sala">Por sala</option><option value="aluno">Por aluno</option></select>
+      <select id="r-tipo"><option value="geral">Geral (ranking de todos)</option><option value="sala">Por sala</option></select>
       <select id="r-alvo"></select><button id="r-ver">Ver</button><button id="r-csv">Exportar CSV</button><button id="r-pdf">Exportar PDF</button></div></div>
     <div id="r-resumo"></div><div id="r-tabela"></div>
   </section>
@@ -247,39 +247,47 @@ const urlSalaDetalhada = () => `${url(false)}&detalhado=1`;
 const TITULOS_RELATORIO = {
   atividade: 'Conteúdo', aluno: 'Criança', sala: 'Turma', perguntas: 'Perguntas',
   acertos: 'Acertos', percentual_acerto: 'Acerto (%)', pontos_total: 'Pontos',
-  pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)'
+  pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)', origem: 'Origem'
 };
+const resumoRelatorio = (resumo) => `<div class="resumo-relatorio">${Object.entries(resumo || {}).map(([chave, valor]) =>
+  `<div class="metrica">${esc(chave)}<b>${esc(valor)}</b></div>`).join('')}</div>`;
 $('r-ver').onclick = async () => {
   const porSala = $('r-tipo').value === 'sala';
-  const dadosSala = porSala ? await api(urlSalaDetalhada()) : null;
-  const rows = porSala ? dadosSala.relatorioAlunos : await api(url());
+  const pacote = await api(`${url(false)}&detalhado=1`);
+  const dadosSala = porSala ? pacote : null;
+  const rows = porSala ? dadosSala.relatorioAlunos : pacote.rows;
   $('r-resumo').replaceChildren();
   if (!rows.length) {
     $('r-tabela').innerHTML = `<p>${$('r-tipo').value === 'aluno' ? 'Esta criança ainda não respondeu perguntas.' : 'Sem dados para este relatório.'}</p>`;
     return;
   }
-  if (['geral', 'sala'].includes($('r-tipo').value)) {
-    $('r-resumo').innerHTML = '<p>Os registros anteriores mostram os totais disponíveis na planilha; acertos e percentuais sem dados de origem aparecem como —.</p>';
+  if ($('r-tipo').value === 'geral') {
+    $('r-resumo').replaceChildren();
+  } else if ($('r-tipo').value === 'sala') {
+    $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + '<p>O total de perguntas é o maior número respondido por uma criança; o tempo médio é ponderado pelas perguntas.</p>';
   }
   if (porSala) {
     const nomeAtividade = (atividade) => NOMES[atividade] || atividade;
     const tabela = (cabecalhos, linhas) => `<div style="overflow-x:auto"><table><thead><tr>${cabecalhos.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${linhas.map((linha) => `<tr>${linha.map((celula) => `<td>${esc(celula)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-    const porAluno = dadosSala.alunos.map((aluno) => {
-      const atividades = dadosSala.dificuldadesPorAluno.filter((item) => item.aluno_id === aluno.id);
-      if (!atividades.length) return [aluno.nome, 'Sem respostas por atividade', '—', aluno.perguntas];
-      const menorAcerto = Math.min(...atividades.map((item) => item.percentual_acerto));
-      const maisDificeis = atividades.filter((item) => item.percentual_acerto === menorAcerto);
+    const alunosImportados = rows.filter((aluno) => aluno.origem === 'Planilha' || aluno.origem === 'Estimado')
+      .map((aluno) => ({ id: null, nome: aluno.aluno, perguntas: aluno.perguntas }));
+    const porAluno = [...dadosSala.alunos, ...alunosImportados].map((aluno) => {
+      const atividades = dadosSala.dificuldadesPorAluno.filter((item) => aluno.id
+        ? item.aluno_id === aluno.id : item.aluno === aluno.nome);
+      const comDificuldade = atividades.filter((item) => item.percentual_acerto < 100);
+      if (!comDificuldade.length) return [aluno.nome, 'Sem dificuldade identificada', '—', 0];
+      const menorAcerto = Math.min(...comDificuldade.map((item) => item.percentual_acerto));
+      const maisDificeis = comDificuldade.filter((item) => item.percentual_acerto === menorAcerto);
       return [aluno.nome, maisDificeis.map((item) => nomeAtividade(item.atividade)).join(', '),
         `${menorAcerto}%`, maisDificeis.reduce((total, item) => total + item.perguntas, 0)];
     });
-    rows.filter((aluno) => aluno.acertos == null).forEach((aluno) =>
-      porAluno.push([aluno.aluno, 'Não disponível na planilha importada', '—', aluno.perguntas]));
-    $('r-resumo').innerHTML = `<h2>Dificuldades da turma</h2>
-      <p>Menor percentual de acerto indica maior dificuldade. A análise considera respostas individuais registradas; planilhas antigas sem dados por atividade não permitem esse cálculo.</p>
-      <h3>Atividades com menor acerto na sala</h3>${dadosSala.dificuldadesDaSala.length
+      const dificuldadesDaSala = dadosSala.dificuldadesDaSala.filter((item) => item.percentual_acerto < 100);
+      $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + `<h2>Dificuldades da turma</h2>
+      <p>Menor percentual de acerto indica maior dificuldade. Salas sem respostas próprias usam a aproximação agregada das turmas do mesmo ano.</p>
+      <h3>Atividades com menor acerto na sala</h3>${dificuldadesDaSala.length
         ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Acerto (%)'],
-          dadosSala.dificuldadesDaSala.map((item) => [nomeAtividade(item.atividade), item.perguntas, item.acertos, `${item.percentual_acerto}%`]))
-        : '<p>A sala ainda não tem respostas individuais por atividade.</p>'}
+          dificuldadesDaSala.map((item) => [nomeAtividade(item.atividade), item.perguntas, item.acertos, `${item.percentual_acerto}%`]))
+        : '<p>A sala ainda não tem dados de atividade nem uma turma do mesmo ano como referência.</p>'}
       <h3>Atividade(s) com menor acerto por criança</h3>${tabela(['Criança', 'Atividade(s) para reforçar', 'Acerto (%)', 'Perguntas nessas atividades'], porAluno)}`;
   }
   if ($('r-tipo').value === 'aluno') {
@@ -289,14 +297,14 @@ $('r-ver').onclick = async () => {
     const percentual = perguntas ? `${(100 * acertos / perguntas).toFixed(1)}%` : '—';
     const menorAproveitamento = [...rows].sort((a, b) => a.percentual_acerto - b.percentual_acerto)[0];
     const nomeAluno = $('r-alvo').selectedOptions[0]?.textContent || 'Criança selecionada';
-    $('r-resumo').innerHTML = `<h2>Relatório de ${esc(nomeAluno)}</h2><p>Desempenho acumulado por conteúdo</p><div class="resumo-relatorio">
+    $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + `<h2>Relatório de ${esc(nomeAluno)}</h2><p>Desempenho acumulado por conteúdo</p><div class="resumo-relatorio">
       <div class="metrica">Perguntas respondidas<b>${perguntas}</b></div>
       <div class="metrica">Respostas certas<b>${acertos} de ${perguntas}</b></div>
       <div class="metrica">Média de acerto<b>${percentual}</b></div>
       <div class="metrica">Pontos nas perguntas<b>${pontos}</b></div>
     </div>${menorAproveitamento ? `<p class="destaque-relatorio">Conteúdo para reforçar: <b>${esc(NOMES[menorAproveitamento.atividade] || menorAproveitamento.atividade)}</b> (${menorAproveitamento.percentual_acerto}% de acerto)</p>` : ''}`;
   }
-  const k = Object.keys(rows[0]);
+  const k = Object.keys(rows[0]).filter((coluna) => coluna !== 'origem');
   const valor = (coluna, linha) => {
     if (coluna === 'atividade') return NOMES[linha[coluna]] || linha[coluna];
     if (linha[coluna] == null) return '—';
@@ -310,7 +318,12 @@ $('r-csv').onclick = async () => {
   const r = await fetch(url(true), { headers: { 'x-token': token } }); const a = document.createElement('a');
   a.href = URL.createObjectURL(await r.blob()); a.download = `relatorio-${$('r-tipo').value}.csv`; a.click();
 };
-$('r-pdf').onclick = async () => { await $('r-ver').onclick(); print(); }; // "Salvar como PDF" na janela de impressão
+$('r-pdf').onclick = async () => {
+  const r = await fetch(url(false) + '&pdf=1', { headers: { 'x-token': token } });
+  if (!r.ok) throw new Error('Não foi possível gerar o PDF.');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob());
+  a.download = `relatorio-${$('r-tipo').value}.pdf`; a.click(); URL.revokeObjectURL(a.href);
+};
 
 async function carregarDadosCriancas() {
   const rows = await api('/api/admin/dados-alunos');

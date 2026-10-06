@@ -125,7 +125,7 @@
       <div id="pausa-personagem" aria-hidden="true">🤖</div>
       <h2 id="pausa-titulo">Desafio-relâmpago</h2>
       <p id="pausa-instrucao">Resolva o desafio antes da próxima rodada.</p>
-      <p id="pausa-tempo">Resolva em até 20 segundos. Cada desafio vale 50 pontos.</p>
+      <p id="pausa-tempo">Resolva em até 15 segundos. Cada desafio vale 50 pontos.</p>
       <div id="memoria-pares" role="status" aria-live="polite">Pares: 0 de 3</div>
       <div id="tabuleiro-memoria" role="group" aria-label="Jogo da memória" hidden></div>
       <div id="pausa-opcoes" class="opcoes" hidden></div>
@@ -281,9 +281,11 @@ async function iniciarPausa() {
     $('pausa-tempo').textContent = `Resolva em até ${r.tempoLimite} segundos. Cada desafio vale 50 pontos.`;
     $('pausa-instrucao').textContent = r.texto;
     if (r.tipo === 'memoria') {
+      $('pausa-opcoes').hidden = true; $('pausa-opcoes').replaceChildren();
       $('tabuleiro-memoria').hidden = false; $('memoria-pares').hidden = false;
       iniciarJogoMemoria(r.pares || 3);
     } else {
+      pararJogoMemoria(); $('tabuleiro-memoria').hidden = true; $('memoria-pares').hidden = true;
       $('pausa-opcoes').hidden = false;
       r.opcoes.forEach((opcao) => {
         const botao = document.createElement('button');
@@ -376,6 +378,7 @@ function entrar(status) {
 async function proxima() {
   if (pausaTimer) { clearInterval(pausaTimer); pausaTimer = null; }
   pararJogoMemoria();
+  mostrar('t-espera');
   travado = false; digitado = ''; $('msg').textContent = ''; $('msg').className = ''; $('dica').style.display = 'none';
   const r = await api('/api/pergunta', { alunoId: aluno.id });
   if (r.encerrada) return fim();
@@ -383,8 +386,7 @@ async function proxima() {
   if (r.pausa) return iniciarPausa();
   if (r.erro) return mostrar('t-espera');
   q = r;
-  const perguntaRodada = (r.numero - 1) % 6 + 1, numeroRodada = Math.floor((r.numero - 1) / 6) + 1;
-  $('prog').textContent = `Rodada ${numeroRodada} · Pergunta ${perguntaRodada} de 6${r.total ? ` · ${r.numero} de ${r.total} no total` : ''}`;
+  $('prog').textContent = `Pergunta ${r.numero}${r.total ? ` de ${r.total}` : ''}`;
   $('texto').textContent = r.texto; mostrarCena(r.atividade, r.numero);
   $('a-digitar').style.display = r.tipo === 'digitar' ? 'block' : 'none';
   $('a-clicar').style.display = r.tipo === 'clicar' ? 'flex' : 'none';
@@ -442,8 +444,7 @@ async function enviar(resposta, el) {
     el?.classList.add('certo'); if (q.tipo === 'arrastar') $('alvo').classList.add('certo');
     const elogio = ELOGIOS_ROBO[Math.floor(Math.random() * ELOGIOS_ROBO.length)];
     msg.textContent = `✅ ${elogio} +${r.pontos}`; msg.className = 'ok'; som(660); setTimeout(() => som(880), 120); confete();
-    const fimRodada = q.numero % 6 === 0;
-    return setTimeout(() => { if (r.fim) fim(r.resumo); else if (fimRodada) iniciarPausa(); else proxima(); }, 1300);
+    return setTimeout(() => { if (r.fim) fim(r.resumo); else proxima(); }, 1300);
   }
   const incentivo = r.erros < 3 ? INCENTIVOS_ROBO[Math.floor(Math.random() * INCENTIVOS_ROBO.length)] : (r.mensagem || 'Vamos com calma!');
   som(200, .25, 'triangle'); msg.textContent = '🤖 ' + incentivo; msg.className = 'erro'; el?.classList.add('treme'); setTimeout(() => el?.classList.remove('treme'), 400);
@@ -454,8 +455,7 @@ async function enviar(resposta, el) {
     document.querySelectorAll('#a-clicar button,#chips .chip').forEach((b) => { if ((b.dataset.valor || b.textContent) === r.respostaCerta) b.classList.add('certo'); });
     if (q.tipo === 'arrastar') { $('alvo').textContent = r.respostaCerta; $('alvo').classList.add('certo'); }
     if (q.tipo === 'digitar') $('visor').textContent = r.respostaCerta;
-    const fimRodada = q.numero % 6 === 0;
-    return setTimeout(() => { if (r.fim) fim(r.resumo); else if (fimRodada) iniciarPausa(); else proxima(); }, 3200);
+    return setTimeout(() => { if (r.fim) fim(r.resumo); else proxima(); }, 3200);
   }
   digitado = ''; if (q.tipo === 'digitar') $('visor').textContent = ''; travado = false;
 }
