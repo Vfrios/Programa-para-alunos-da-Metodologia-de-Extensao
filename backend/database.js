@@ -6,8 +6,23 @@ const { horaFim } = require('./agendamento');
 const caminhoBase = path.resolve(__dirname, '../database/matematica.db');
 const caminhoBanco = process.env.DB_FILE === ':memory:' ? ':memory:'
   : process.env.DB_FILE ? path.resolve(process.env.DB_FILE) : caminhoBase;
-if (caminhoBanco !== ':memory:') fs.mkdirSync(path.dirname(caminhoBanco), { recursive: true });
+if (caminhoBanco !== ':memory:') {
+  const diretorioBanco = path.dirname(caminhoBanco);
+  if (process.env.NODE_ENV === 'production' && process.env.DB_FILE) {
+    try {
+      fs.accessSync(diretorioBanco, fs.constants.W_OK);
+    } catch (error) {
+      throw new Error(
+        `DB_FILE=${caminhoBanco} não está acessível (${error.code || error.message}). Anexe um Persistent Disk ao serviço Render, montado em ${diretorioBanco}, e confirme que ele aparece na página Disks do serviço. O app não usará banco temporário.`,
+        { cause: error }
+      );
+    }
+  } else {
+    fs.mkdirSync(diretorioBanco, { recursive: true });
+  }
+}
 const db = new DatabaseSync(caminhoBanco);
+console.log(`Banco SQLite em uso: ${caminhoBanco}`);
 db.exec(fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8'));
 db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000;');
 for (const [tabela, coluna, definicao] of [
