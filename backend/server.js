@@ -61,11 +61,11 @@ const ranking = (sessaoId) => all(`SELECT a.id, a.nome,
     COUNT(r.id) AS respostas
   FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sessao_id=? GROUP BY a.id ORDER BY pontos DESC, a.id`, sessaoId);
 const rankingGeral = () => all(`SELECT id, nome, sala, pontos FROM (
-    SELECT a.id, a.nome, COALESCE('Turma ' || sa.ano || 'º ano ' || (SELECT h.hora FROM horarios h WHERE h.sala_id=sa.id ORDER BY h.id LIMIT 1), sa.nome) AS sala,
+    SELECT a.id, a.nome, sa.nome AS sala,
       COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
     FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id GROUP BY a.id
     UNION ALL
-    SELECT NULL, ai.nome, COALESCE('Turma ' || sa.ano || 'º ano ' || (SELECT h.hora FROM horarios h WHERE h.sala_id=sa.id ORDER BY h.id LIMIT 1), sa.nome), ai.pontos_total
+    SELECT NULL, ai.nome, sa.nome, ai.pontos_total
     FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
     JOIN salas sa ON sa.id=i.sala_id
   ) ORDER BY pontos DESC, nome LIMIT 50`);
@@ -575,7 +575,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
     ) ORDER BY pontos_total DESC, aluno`, id, id);
   else rows = all(`SELECT aluno, sala, perguntas, acertos, percentual_acerto, pontos, origem
     FROM (
-      SELECT a.nome AS aluno, COALESCE('Turma ' || sa.ano || 'º ano ' || (SELECT h.hora FROM horarios h WHERE h.sala_id=sa.id ORDER BY h.id LIMIT 1), sa.nome) AS sala, COUNT(r.id) AS perguntas,
+      SELECT a.nome AS aluno, sa.nome AS sala, COUNT(r.id) AS perguntas,
         COALESCE(SUM(r.correta),0) AS acertos,
         CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
         COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos,
@@ -583,7 +583,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id
       GROUP BY a.id
       UNION ALL
-      SELECT ai.nome, COALESCE('Turma ' || s.ano || 'º ano ' || (SELECT h.hora FROM horarios h WHERE h.sala_id=s.id ORDER BY h.id LIMIT 1), s.nome), ai.total_respostas, ai.acertos, ai.percentual_acerto, ai.pontos_total,
+      SELECT ai.nome, s.nome, ai.total_respostas, ai.acertos, ai.percentual_acerto, ai.pontos_total,
         CASE WHEN ai.estimado=1 THEN 'Estimado' ELSE 'Planilha' END
       FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
       JOIN salas s ON s.id=i.sala_id WHERE ai.total_respostas>0
