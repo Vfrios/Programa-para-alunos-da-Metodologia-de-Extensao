@@ -159,7 +159,7 @@ const mostrar = (id) => document.querySelectorAll('.tela').forEach((t) => t.clas
 const EMOJI = { Bronze: '🥉', Prata: '🥈', Ouro: '🥇', 'Troféu': '🏆', Coroa: '👑' };
 const NOMES_UNIDADES = { mm: 'milímetros', cm: 'centímetros', m: 'metros', km: 'quilômetros', g: 'gramas', kg: 'quilogramas', mL: 'mililitros', L: 'litros' };
 
-let aluno = null, q = null, digitado = '', travado = false, total = 0, dados = [], idade = null, encerrada = false;
+let aluno = null, q = null, digitado = '', travado = false, verificarRespostaTimer = null, verificandoResposta = false, total = 0, dados = [], idade = null, encerrada = false;
 let pausaTimer = null, jogoMemoriaAtivo = false, cartasMemoria = [], cartasViradas = [], paresMemoria = [], bloqueioMemoria = null, pacoteMemoriaAnterior = -1;
 let desafioAtual = null, desafioResolvido = false, desafioEnviando = false;
 
@@ -377,6 +377,7 @@ function entrar(status) {
 // ---------- jogo ----------
 async function proxima() {
   if (pausaTimer) { clearInterval(pausaTimer); pausaTimer = null; }
+  if (verificarRespostaTimer) { clearTimeout(verificarRespostaTimer); verificarRespostaTimer = null; }
   pararJogoMemoria();
   mostrar('t-espera');
   travado = false; digitado = ''; $('msg').textContent = ''; $('msg').className = ''; $('dica').style.display = 'none';
@@ -406,6 +407,34 @@ function tecla(k) {
   else if (k === 'OK') { if (digitado) enviar(digitado); return; }
   else if (digitado.length < 4) digitado += k;
   $('visor').textContent = digitado;
+  agendarVerificacaoResposta();
+}
+function agendarVerificacaoResposta() {
+  if (verificarRespostaTimer) clearTimeout(verificarRespostaTimer);
+  if (!digitado) return;
+  const resposta = digitado;
+  verificarRespostaTimer = setTimeout(async () => {
+    verificarRespostaTimer = null;
+    if (travado || q?.tipo !== 'digitar' || !aluno) return;
+    if (verificandoResposta) return agendarVerificacaoResposta();
+    verificandoResposta = true;
+    try {
+      const resultado = await api('/api/resposta/teclado', { alunoId: aluno.id, resposta });
+      if (resultado.correta) return enviar(resposta, null, resultado);
+      if (resultado.erro && !travado && digitado === resposta) {
+        $('msg').textContent = resultado.erro;
+        $('msg').className = 'erro';
+      }
+    } catch {
+      if (!travado && digitado === resposta) {
+        $('msg').textContent = 'Não foi possível verificar automaticamente. Toque em OK para enviar.';
+        $('msg').className = 'erro';
+      }
+    } finally {
+      verificandoResposta = false;
+      if (!travado && digitado !== resposta) agendarVerificacaoResposta();
+    }
+  }, 250);
 }
 document.addEventListener('keydown', (e) => {
   if (!$('t-jogo').classList.contains('ativa') || q?.tipo !== 'digitar') return;
@@ -428,12 +457,12 @@ function chip(valor) { // arrastar com mouse ou dedo; um toque simples também r
     if (!mov || dentro) { $('alvo').textContent = valor; enviar(valor, c); } };
   return c;
 }
-async function enviar(resposta, el) {
+async function enviar(resposta, el, resultadoConfirmado = null) {
   if (travado) return; travado = true;
   const msg = $('msg');
   msg.textContent = 'Enviando resposta...'; msg.className = '';
   let r;
-  try { r = await api('/api/resposta', { alunoId: aluno.id, resposta }); }
+  try { r = resultadoConfirmado || await api('/api/resposta', { alunoId: aluno.id, resposta }); }
   catch {
     msg.textContent = 'Não foi possível confirmar. Verifique a conexão e tente novamente.';
     msg.className = 'erro'; travado = false; return;

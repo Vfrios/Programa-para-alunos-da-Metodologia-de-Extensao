@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const db = require('./database');
 const { serializeDatabase, restoreDatabase } = require('./engine/database-backup');
 const { configurarAdmin, confere } = require('./engine/admin');
+const { aproveitamentoResposta } = require('./engine/relatorios');
 const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades, criarSorteadorDeModelos } = require('./engine/gerador');
 const { criarDesafio } = require('./engine/desafios');
 const { calcularPontos, ajustarNivel, mensagemErro, premio, nota } = require('./engine/regras');
@@ -199,7 +200,7 @@ app.post('/api/pergunta', ok((req, res) => {
     const at = sorteadoresAtividade.get(id)(ativ);
     const turma = get('SELECT conteudo_maior_dificuldade FROM salas WHERE id=?', a.sala_id);
     const nivelBase = get('SELECT nivel FROM perfis WHERE aluno_id=? AND atividade=?', id, at)?.nivel ?? 1;
-    const nivel = Math.min(5, nivelBase + (turma?.conteudo_maior_dificuldade === at ? 1 : 0));
+    const nivel = Math.min(5, nivelBase + (conteudosReforco(turma?.conteudo_maior_dificuldade).includes(at) ? 1 : 0));
     if (!sorteadoresModelo.has(id)) sorteadoresModelo.set(id, new Map());
     const modelosDoAluno = sorteadoresModelo.get(id);
     if (!modelosDoAluno.has(at)) modelosDoAluno.set(at, criarSorteadorDeModelos());
@@ -211,12 +212,14 @@ app.post('/api/pergunta', ok((req, res) => {
   res.json({ ...pub, numero: feitas + 1, total: TOTAL || null });
 }));
 
-app.post('/api/resposta', ok((req, res) => {
-  const id = +req.body.alunoId, q = pendentes.get(id);
+function processarResposta(id, resposta) {
+  const q = pendentes.get(id);
   if (!q) throw new Error('Sem pergunta em andamento.');
-  if (get('SELECT status FROM sessoes WHERE id=?', q.sessaoId).status !== 'iniciada') return res.status(409).json({ erro: 'Sessão não está ativa.' });
+  if (get('SELECT status FROM sessoes WHERE id=?', q.sessaoId).status !== 'iniciada') {
+    return { status: 409, resultado: { erro: 'Sessão não está ativa.' } };
+  }
   const seg = (Date.now() - q.t0) / 1000;
-  const respondeuCorreto = String(req.body.resposta).trim() === q.p.resposta;
+  const respondeuCorreto = String(resposta).trim() === q.p.resposta;
   if (!respondeuCorreto) q.erros++;
   const correta = respondeuCorreto && q.erros < 3;
   const comboAtual = comboPorAluno.get(id) || 0;
@@ -232,7 +235,7 @@ app.post('/api/resposta', ok((req, res) => {
     const pontos = correta ? calcularPontos({ nivel: q.nivelReal, tempoSegundos: seg, tentativas: q.erros + (correta ? 1 : 0), dica: q.dica, correta: true, combo: comboNovo }) : 0;
     const nivel = ajustarNivel(q.nivelReal, correta, seg, q.erros + 1);
     run('INSERT INTO respostas(aluno_id,sessao_id,atividade,nivel,pergunta,resposta,correta,tentativas,dica,pontos,tempo) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-      id, q.sessaoId, q.p.atividade, q.nivelReal, q.p.texto, String(req.body.resposta), correta ? 1 : 0, q.erros + (correta ? 1 : 0), q.dica, pontos, seg);
+      id, q.sessaoId, q.p.atividade, q.nivelReal, q.p.texto, String(resposta), correta ? 1 : 0, q.erros + (respondeuCorreto ? 1 : 0), q.dica, pontos, seg);
     run(`INSERT INTO perfis(aluno_id,atividade,nivel,acertos,erros,tempo_medio) VALUES(?,?,?,?,?,?)
          ON CONFLICT(aluno_id,atividade) DO UPDATE SET nivel=excluded.nivel,
          tempo_medio=(tempo_medio*(acertos+erros)+excluded.tempo_medio)/(acertos+erros+1),
@@ -243,7 +246,22 @@ app.post('/api/resposta', ok((req, res) => {
       out.fim = true; out.resumo = resumo(id); sorteadoresModelo.delete(id); emitirRanking();
     }
   }
-  res.json(out);
+  return { status: 200, resultado: out };
+}
+app.post('/api/resposta', ok((req, res) => {
+  const resultado = processarResposta(+req.body.alunoId, req.body.resposta);
+  res.status(resultado.status).json(resultado.resultado);
+}));
+app.post('/api/resposta/teclado', ok((req, res) => {
+  const id = +req.body.alunoId, q = pendentes.get(id);
+  if (!q) throw new Error('Sem pergunta em andamento.');
+  if (q.p.tipo !== 'digitar') throw new Error('A pergunta atual não aceita resposta pelo teclado.');
+  if (get('SELECT status FROM sessoes WHERE id=?', q.sessaoId).status !== 'iniciada') {
+    return res.status(409).json({ erro: 'Sessão não está ativa.' });
+  }
+  if (String(req.body.resposta).trim() !== q.p.resposta) return res.json({ correta: false });
+  const resultado = processarResposta(id, req.body.resposta);
+  res.status(resultado.status).json(resultado.resultado);
 }));
 
 app.post('/api/desafio', ok((req, res) => {
@@ -337,12 +355,28 @@ app.put('/api/admin/backup', authPrimario,
     res.json({ ok: true, ...resultado });
   }));
 
+function conteudosReforco(valor) {
+  if (Array.isArray(valor)) return [...new Set(valor.filter((atividade) => ATIVIDADES.includes(atividade)))];
+  if (!valor || typeof valor !== 'string') return [];
+  try {
+    const lista = JSON.parse(valor);
+    if (Array.isArray(lista)) return [...new Set(lista.filter((atividade) => ATIVIDADES.includes(atividade)))];
+  } catch {}
+  return ATIVIDADES.includes(valor) ? [valor] : [];
+}
 const salasCompletas = () => all('SELECT * FROM salas ORDER BY nome').map(({ periodo, dificuldade, ...s }) => ({ ...s,
+  conteudo_maior_dificuldade: conteudosReforco(s.conteudo_maior_dificuldade),
   horarios: all('SELECT dia,hora,fim FROM horarios WHERE sala_id=? ORDER BY dia,hora', s.id),
   atividades: all('SELECT atividade FROM conteudos WHERE sala_id=?', s.id).map((x) => x.atividade).filter((x) => ATIVIDADES.includes(x)) }));
 function salvarSala(id, b) {
   const { nome, ano, professor, conteudo_maior_dificuldade = null, horarios = [], atividades = [] } = b;
   if (!String(nome || '').trim() || ![2, 3].includes(+ano) || !String(professor || '').trim()) throw new Error('Preencha nome, ano e professor.');
+  const conteudosReforcar = Array.isArray(conteudo_maior_dificuldade)
+    ? [...new Set(conteudo_maior_dificuldade)] : conteudo_maior_dificuldade ? [conteudo_maior_dificuldade] : [];
+  if (conteudosReforcar.some((atividade) => !ATIVIDADES.includes(atividade))) {
+    throw new Error('Selecione somente conteúdos válidos para reforçar.');
+  }
+  const conteudosReforcarSalvos = conteudosReforcar.length ? JSON.stringify(conteudosReforcar) : null;
   const horariosValidos = horarios.filter((h) => h.hora).map((h) => {
     const fim = h.fim || horaFim(h.hora);
     if (!Number.isInteger(+h.dia) || +h.dia < 0 || +h.dia > 6 ||
@@ -361,9 +395,9 @@ function salvarSala(id, b) {
       }
     }
   }
-  if (id) { run('UPDATE salas SET nome=?,ano=?,professor=?,conteudo_maior_dificuldade=? WHERE id=?', nome.trim(), +ano, professor.trim(), conteudo_maior_dificuldade || null, id);
+  if (id) { run('UPDATE salas SET nome=?,ano=?,professor=?,conteudo_maior_dificuldade=? WHERE id=?', nome.trim(), +ano, professor.trim(), conteudosReforcarSalvos, id);
     ['horarios', 'conteudos'].forEach((t) => run(`DELETE FROM ${t} WHERE sala_id=?`, id)); }
-  else id = Number(run('INSERT INTO salas(nome,ano,professor,conteudo_maior_dificuldade) VALUES(?,?,?,?)', nome.trim(), +ano, professor.trim(), conteudo_maior_dificuldade || null).lastInsertRowid);
+  else id = Number(run('INSERT INTO salas(nome,ano,professor,conteudo_maior_dificuldade) VALUES(?,?,?,?)', nome.trim(), +ano, professor.trim(), conteudosReforcarSalvos).lastInsertRowid);
   horariosValidos.forEach((h) => run('INSERT INTO horarios(sala_id,dia,hora,fim) VALUES(?,?,?,?)', id, h.dia, h.hora, h.fim));
   const listaAtividades = (atividades.length ? atividades : (ATIVIDADES_POR_ANO[+ano] || ATIVIDADES)).filter((a) => ATIVIDADES.includes(a));
   listaAtividades.forEach((a) => run('INSERT INTO conteudos(sala_id,atividade) VALUES(?,?)', id, a));
@@ -496,7 +530,7 @@ const pdf = (rows, resumo, adicionais = [], salasPorDetalhes = null) => new Prom
   const garantirEspaco = (altura) => { if (doc.y + altura > doc.page.height - 42) doc.addPage(); };
   const valor = (item) => String(item ?? '-');
   const colunas = rows.length ? Object.keys(rows[0]).filter((coluna) => coluna !== 'origem') : [];
-  const nomesColunas = { aluno: 'Aluno', sala: 'Sala', perguntas: 'Perguntas', acertos: 'Acertos', percentual_acerto: 'Acerto (%)', pontos_total: 'Pontos', pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)', atividade: 'Atividade', indicador: 'Indicador', valor: 'Valor' };
+  const nomesColunas = { aluno: 'Aluno', sala: 'Sala', perguntas: 'Perguntas', acertos: 'Acertos', percentual_acerto: 'Aproveitamento (%)', pontos_total: 'Pontos', pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)', atividade: 'Atividade', indicador: 'Indicador', valor: 'Valor' };
   const nomesAtividades = { soma: 'Soma', subtracao: 'Subtração', multiplicacao: 'Multiplicação', sequencia: 'Sequências numéricas', formas: 'Formas geométricas', medidas: 'Medidas', par_impar: 'Par ou ímpar', maior_menor: 'Maior ou menor', antecessor_sucessor: 'Antecessor e sucessor' };
   const tabela = (cabecalhos, dados) => {
     const larguras = cabecalhos.map((_, indice) => indice === 0 ? 180 : (largura - 180) / Math.max(1, cabecalhos.length - 1));
@@ -579,13 +613,13 @@ const pdf = (rows, resumo, adicionais = [], salasPorDetalhes = null) => new Prom
       if (sala.dificuldadesDaSala.length) {
         doc.x = 42; doc.moveDown(0.5);
         doc.font('Helvetica-Bold').fontSize(10).fillColor('#1d2b4f').text('Desempenho por atividade da sala', 42);
-        tabela(['Atividade', 'Perguntas', 'Acertos', 'Acerto (%)'],
+        tabela(['Atividade', 'Perguntas', 'Acertos', 'Aproveitamento (%)'],
           sala.dificuldadesDaSala.map((item) => [nomesAtividades[item.atividade] || item.atividade, item.perguntas, item.acertos, item.percentual_acerto]));
       }
       if (sala.dificuldadesPorAluno.length) {
         doc.x = 42; doc.moveDown(0.5);
         doc.font('Helvetica-Bold').fontSize(10).fillColor('#1d2b4f').text('Desempenho por criança e atividade', 42);
-        tabela(['Aluno', 'Atividade', 'Perguntas', 'Acerto (%)'],
+        tabela(['Aluno', 'Atividade', 'Perguntas', 'Aproveitamento (%)'],
           sala.dificuldadesPorAluno.map((item) => [item.aluno, nomesAtividades[item.atividade] || item.atividade, item.perguntas, item.percentual_acerto]));
       }
     });
@@ -624,13 +658,13 @@ function resumoRelatorio(tipo, id, rows) {
 app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
   const id = +req.query.id; let rows, detalhesSala;
   if (req.params.tipo === 'aluno') rows = all(`SELECT atividade, COUNT(*) AS perguntas, SUM(correta) AS acertos,
-      ROUND(100.0 * SUM(correta) / COUNT(*), 1) AS percentual_acerto,
+      ROUND(100.0 * SUM(${aproveitamentoResposta('respostas')}) / COUNT(*), 1) AS percentual_acerto,
       SUM(pontos) AS pontos_total, ROUND(AVG(tempo),1) AS tempo_medio_s
     FROM respostas WHERE aluno_id=? GROUP BY atividade ORDER BY atividade`, id);
   else if (req.params.tipo === 'sala') rows = all(`SELECT aluno, perguntas, acertos, percentual_acerto, pontos_total, tempo_medio_s, origem
     FROM (
       SELECT a.nome AS aluno, COUNT(r.id) AS perguntas, COALESCE(SUM(r.correta),0) AS acertos,
-        CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+        CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(${aproveitamentoResposta('r')}) / COUNT(r.id), 1) END AS percentual_acerto,
         COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos_total,
         ROUND(AVG(r.tempo),1) AS tempo_medio_s,
         'Atividade' AS origem
@@ -645,7 +679,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       FROM (
         SELECT a.nome AS aluno, sa.nome AS sala, COUNT(r.id) AS perguntas,
           COALESCE(SUM(r.correta),0) AS acertos,
-          CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+          CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(${aproveitamentoResposta('r')}) / COUNT(r.id), 1) END AS percentual_acerto,
           COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
         FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id
         GROUP BY a.id
@@ -660,7 +694,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       const alunosSala = all(`SELECT aluno, perguntas, acertos, percentual_acerto, pontos_total, tempo_medio_s
         FROM (
           SELECT a.nome AS aluno, COUNT(r.id) AS perguntas, COALESCE(SUM(r.correta),0) AS acertos,
-            CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+            CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(${aproveitamentoResposta('r')}) / COUNT(r.id), 1) END AS percentual_acerto,
             COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos_total,
             ROUND(AVG(r.tempo),1) AS tempo_medio_s
           FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id
@@ -669,7 +703,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
           FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=?
         ) ORDER BY pontos_total DESC, aluno`, sala.id, sala.id);
       const dificuldadesPorAluno = all(`SELECT a.id AS aluno_id,a.nome AS aluno,r.atividade,COUNT(*) AS perguntas,
-          ROUND(100.0 * SUM(r.correta) / COUNT(*),1) AS percentual_acerto
+          ROUND(100.0 * SUM(${aproveitamentoResposta('r')}) / COUNT(*),1) AS percentual_acerto
         FROM alunos a JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=?
         GROUP BY a.id,r.atividade
         UNION ALL
@@ -678,11 +712,15 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
         JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? AND ia.perguntas>0
         ORDER BY aluno,percentual_acerto,atividade`, sala.id, sala.id);
       const dificuldadesDaSala = all(`SELECT atividade,SUM(perguntas) AS perguntas,SUM(acertos) AS acertos,
-          ROUND(100.0 * SUM(acertos) / SUM(perguntas),1) AS percentual_acerto
+          ROUND(100.0 * SUM(aproveitamento) / SUM(perguntas),1) AS percentual_acerto
         FROM (
-          SELECT r.atividade,COUNT(*) perguntas,SUM(r.correta) acertos FROM respostas r JOIN alunos a ON a.id=r.aluno_id WHERE a.sala_id=? GROUP BY r.atividade
+          SELECT r.atividade,COUNT(*) perguntas,SUM(r.correta) acertos,
+            SUM(${aproveitamentoResposta('r')}) AS aproveitamento
+          FROM respostas r JOIN alunos a ON a.id=r.aluno_id WHERE a.sala_id=? GROUP BY r.atividade
           UNION ALL
-          SELECT ia.atividade,ia.perguntas,ia.acertos FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
+          SELECT ia.atividade,ia.perguntas,ia.acertos,
+            ia.perguntas * COALESCE(ia.percentual_acerto,100.0 * ia.acertos / NULLIF(ia.perguntas,0)) / 100.0
+          FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
           JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? AND ia.perguntas>0
         ) GROUP BY atividade ORDER BY percentual_acerto,perguntas DESC,atividade`, sala.id, sala.id);
       salasPorDetalhes[sala.id] = {
@@ -717,7 +755,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
     FROM (
       SELECT a.nome AS aluno, sa.nome AS sala, COUNT(r.id) AS perguntas,
         COALESCE(SUM(r.correta),0) AS acertos,
-        CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+        CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(${aproveitamentoResposta('r')}) / COUNT(r.id), 1) END AS percentual_acerto,
         COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
       FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id
       GROUP BY a.id
@@ -730,11 +768,15 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
   const adicionaisPdf = [];
   if (req.params.tipo === 'sala') {
     const dificuldadesPdf = all(`SELECT atividade,SUM(perguntas) AS perguntas,SUM(acertos) AS acertos,
-        ROUND(100.0 * SUM(acertos) / SUM(perguntas),1) AS percentual_acerto
+        ROUND(100.0 * SUM(aproveitamento) / SUM(perguntas),1) AS percentual_acerto
       FROM (
-        SELECT r.atividade,COUNT(*) perguntas,SUM(r.correta) acertos FROM respostas r JOIN alunos a ON a.id=r.aluno_id WHERE a.sala_id=? GROUP BY r.atividade
+        SELECT r.atividade,COUNT(*) perguntas,SUM(r.correta) acertos,
+          SUM(${aproveitamentoResposta('r')}) AS aproveitamento
+        FROM respostas r JOIN alunos a ON a.id=r.aluno_id WHERE a.sala_id=? GROUP BY r.atividade
         UNION ALL
-        SELECT ia.atividade,ia.perguntas,ia.acertos FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
+        SELECT ia.atividade,ia.perguntas,ia.acertos,
+          ia.perguntas * COALESCE(ia.percentual_acerto,100.0 * ia.acertos / NULLIF(ia.perguntas,0)) / 100.0
+        FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
         JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? AND ia.perguntas>0
       ) GROUP BY atividade ORDER BY percentual_acerto,perguntas DESC,atividade`, id, id);
     adicionaisPdf.push('Atividades com menor acerto na sala:');
@@ -744,7 +786,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
       JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? AND ia.perguntas>0
       UNION ALL
-      SELECT a.nome,r.atividade,ROUND(100.0*SUM(r.correta)/COUNT(*),1)
+      SELECT a.nome,r.atividade,ROUND(100.0*SUM(${aproveitamentoResposta('r')})/COUNT(*),1)
       FROM respostas r JOIN alunos a ON a.id=r.aluno_id WHERE a.sala_id=? GROUP BY a.id,r.atividade`, id, id);
     const porAlunoPdf = new Map();
     alunosPdf.forEach((item) => { if (!porAlunoPdf.has(item.aluno)) porAlunoPdf.set(item.aluno, []); porAlunoPdf.get(item.aluno).push(item); });
@@ -762,22 +804,24 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       alunos: all(`SELECT a.id,a.nome,COUNT(r.id) AS perguntas FROM alunos a
         LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id ORDER BY a.nome`, id),
       dificuldadesPorAluno: all(`SELECT a.id AS aluno_id,a.nome AS aluno,r.atividade,COUNT(*) AS perguntas,
-          ROUND(100.0 * SUM(r.correta) / COUNT(*),1) AS percentual_acerto
+          ROUND(100.0 * SUM(${aproveitamentoResposta('r')}) / COUNT(*),1) AS percentual_acerto
         FROM alunos a JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=?
         GROUP BY a.id,r.atividade ORDER BY a.nome,percentual_acerto,r.atividade`, id),
       dificuldadesDaSala: all(`SELECT atividade,SUM(perguntas) AS perguntas,SUM(acertos) AS acertos,
-          ROUND(100.0 * SUM(acertos) / SUM(perguntas),1) AS percentual_acerto
+          ROUND(100.0 * SUM(aproveitamento) / SUM(perguntas),1) AS percentual_acerto
         FROM (
-          SELECT r.atividade,COUNT(*) AS perguntas,SUM(r.correta) AS acertos
+          SELECT r.atividade,COUNT(*) AS perguntas,SUM(r.correta) AS acertos,
+            SUM(${aproveitamentoResposta('r')}) AS aproveitamento
           FROM respostas r JOIN alunos a ON a.id=r.aluno_id WHERE a.sala_id=? GROUP BY r.atividade
           UNION ALL
-          SELECT ia.atividade,ia.perguntas,ia.acertos
+          SELECT ia.atividade,ia.perguntas,ia.acertos,
+            ia.perguntas * COALESCE(ia.percentual_acerto,100.0 * ia.acertos / NULLIF(ia.perguntas,0)) / 100.0
           FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
           JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? AND ia.perguntas>0
         ) GROUP BY atividade ORDER BY percentual_acerto,perguntas DESC,atividade`, id, id)
     };
     detalhesSala.dificuldadesPorAluno = all(`SELECT a.id AS aluno_id,a.nome AS aluno,r.atividade,COUNT(*) AS perguntas,
-        ROUND(100.0 * SUM(r.correta) / COUNT(*),1) AS percentual_acerto
+        ROUND(100.0 * SUM(${aproveitamentoResposta('r')}) / COUNT(*),1) AS percentual_acerto
       FROM alunos a JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=?
       GROUP BY a.id,r.atividade
       UNION ALL

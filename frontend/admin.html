@@ -16,6 +16,13 @@
   input,select{font:inherit;padding:6px 8px;border:2px solid var(--tinta);border-radius:8px}
   .caixa,.item{background:#fff;border:2px solid var(--tinta);border-radius:12px;padding:14px;margin-bottom:12px}
   .linha{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+  .selecao-conteudos{display:flex;flex-wrap:wrap;gap:8px;width:100%;padding:12px;border:1px solid var(--grade);border-radius:10px}
+  .selecao-conteudos legend{padding:0 5px;font-weight:700}
+  .selecao-conteudos label{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid var(--grade);border-radius:999px;background:#fff;cursor:pointer;transition:background .15s,border-color .15s}
+  .selecao-conteudos label:hover{border-color:var(--azul)}
+  .selecao-conteudos label:has(input:checked){border-color:var(--azul);background:#eaf1ff}
+  .selecao-conteudos input{width:16px;height:16px;margin:0;padding:0;accent-color:var(--azul)}
+  .selecao-conteudos label:focus-within{outline:3px solid #9dbbff;outline-offset:2px}
   .aba{display:none}.aba.ativa{display:block}
   table{border-collapse:collapse;width:100%}th,td{border:1px solid var(--grade);padding:4px 8px;text-align:left}th{background:var(--grade)}
   .timer{font-size:1.2rem}.resumo-relatorio{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
@@ -50,7 +57,7 @@
     <div class="caixa"><h3 id="form-titulo">Nova sala</h3><input type="hidden" id="f-id">
       <div class="linha"><input id="f-nome" placeholder="Nome (ex: 2º A)"> <select id="f-ano" aria-label="Ano"><option value="2">2º ano</option><option value="3">3º ano</option></select>
         <input id="f-prof" placeholder="Professor responsável"></div>
-      <div class="linha"><select id="f-conteudo-dificil" aria-label="Conteúdo para reforçar"><option value="">Selecione o conteúdo para reforçar</option></select></div>
+      <fieldset class="selecao-conteudos" id="f-conteudo-dificil"><legend>Conteúdos para reforçar</legend></fieldset>
       <div><b>Horários</b> <button id="add-h" type="button">+ horário</button><div id="f-horarios"></div></div>
       <div style="margin-top:8px"><b>Conteúdo</b><div class="linha" id="f-ativ"></div></div>
       <div class="linha"><button id="salvar">Salvar sala</button> <button id="cancelar" type="button">Limpar</button> <span id="f-erro" style="color:#c0392b"></span></div>
@@ -112,8 +119,11 @@ const NOMES = { soma: 'Soma', subtracao: 'Subtração', multiplicacao: 'Multipli
 let token = sessionStorage.getItem('t'), salas = [], papel = 'admin';
 
 function popularSelects() {
-  $('f-conteudo-dificil').innerHTML = '<option value="">Selecione o conteúdo mais difícil</option>' + Object.entries(NOMES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  $('f-conteudo-dificil').innerHTML = '<legend>Conteúdos para reforçar</legend>' + Object.entries(NOMES)
+    .map(([k, v]) => `<label><input type="checkbox" value="${k}"> ${esc(v)}</label>`).join('');
 }
+const conteudosParaReforcarSelecionados = () =>
+  [...$('f-conteudo-dificil').querySelectorAll('input:checked')].map((checkbox) => checkbox.value);
 
 async function api(u, m = 'GET', b) {
   const r = await fetch(u, { method: m, headers: { 'Content-Type': 'application/json', 'x-token': token || '' }, body: b ? JSON.stringify(b) : undefined });
@@ -209,7 +219,7 @@ function linhaHorario(dia = 1, hora = '13:30', fim = '') {
 }
 $('add-h').onclick = () => linhaHorario();
 const padroesPorAno = { 2: ['soma', 'subtracao', 'sequencia', 'par_impar', 'antecessor_sucessor'], 3: ['subtracao', 'soma', 'multiplicacao', 'sequencia', 'par_impar', 'maior_menor', 'formas', 'medidas'] };
-function limpar() { $('f-id').value = ''; $('f-nome').value = ''; $('f-prof').value = ''; $('f-ano').value = 2; $('f-conteudo-dificil').value = ''; $('f-horarios').innerHTML = ''; $('f-erro').textContent = '';
+function limpar() { $('f-id').value = ''; $('f-nome').value = ''; $('f-prof').value = ''; $('f-ano').value = 2; document.querySelectorAll('#f-conteudo-dificil input').forEach((c) => (c.checked = false)); $('f-horarios').innerHTML = ''; $('f-erro').textContent = '';
   $('form-titulo').textContent = 'Nova sala'; document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[2].includes(c.value))); linhaHorario(); }
 $('cancelar').onclick = limpar;
 $('f-ano').onchange = () => { const ano = +$('f-ano').value; document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[ano]?.includes(c.value) || false)); };
@@ -222,7 +232,7 @@ $('salvar').onclick = async () => {
       !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(fim) || fim <= hora)) {
     $('f-erro').textContent = 'Informe início e fim no formato 24 horas HH:mm, com o fim depois do início.'; return;
   }
-  const body = { nome: $('f-nome').value, ano: +$('f-ano').value, professor: $('f-prof').value, conteudo_maior_dificuldade: $('f-conteudo-dificil').value || null,
+  const body = { nome: $('f-nome').value, ano: +$('f-ano').value, professor: $('f-prof').value, conteudo_maior_dificuldade: conteudosParaReforcarSelecionados(),
     horarios,
     atividades: [...document.querySelectorAll('#f-ativ input:checked')].map((c) => c.value) };
   try { const id = $('f-id').value; await api(id ? '/api/admin/salas/' + id : '/api/admin/salas', id ? 'PUT' : 'POST', body); limpar(); carregarSalas(); }
@@ -244,7 +254,7 @@ function renderizarSalas() {
       (!ano || String(s.ano) === ano);
   });
   $('lista-salas').innerHTML = filtradas.map((s) => `<div class="item"><label><input type="checkbox" data-selecionar-sala="${s.id}" aria-label="Selecionar sala ${esc(s.nome)}"> Selecionar</label> <b>${esc(s.nome)}</b> — ${s.ano}º ano — ${esc(s.professor)}<br>
-    <small>Conteúdo para reforçar: ${s.conteudo_maior_dificuldade ? NOMES[s.conteudo_maior_dificuldade] || s.conteudo_maior_dificuldade : 'nenhum'}<br>${s.horarios.map((h) => DIAS[h.dia] + ' ' + h.hora + '–' + h.fim).join(', ') || 'sem horário'} · ${s.atividades.map((a) => NOMES[a]).join(', ') || 'sem conteúdo'}</small>
+    <small>Conteúdos para reforçar: ${s.conteudo_maior_dificuldade.length ? s.conteudo_maior_dificuldade.map((a) => NOMES[a] || a).join(', ') : 'nenhum'}<br>${s.horarios.map((h) => DIAS[h.dia] + ' ' + h.hora + '–' + h.fim).join(', ') || 'sem horário'} · ${s.atividades.map((a) => NOMES[a]).join(', ') || 'sem conteúdo'}</small>
     <div class="linha"><button data-ed="${s.id}">Editar</button><button data-del="${s.id}">Excluir</button></div></div>`).join('') || '<p>Nenhuma sala criada ainda.</p>';
   atualizarSelecaoSalas();
 }
@@ -282,7 +292,9 @@ $('lista-salas').onclick = async (e) => {
   const d = e.target.dataset;
   if (d.del && confirm('Excluir esta sala?')) { await api('/api/admin/salas/' + d.del, 'DELETE'); carregarSalas(); }
   if (d.ed) { const s = salas.find((x) => x.id == d.ed); limpar(); $('f-horarios').innerHTML = '';
-    $('f-id').value = s.id; $('f-nome').value = s.nome; $('f-ano').value = s.ano; $('f-prof').value = s.professor; $('f-conteudo-dificil').value = s.conteudo_maior_dificuldade || ''; $('form-titulo').textContent = 'Editar sala';
+    $('f-id').value = s.id; $('f-nome').value = s.nome; $('f-ano').value = s.ano; $('f-prof').value = s.professor;
+    document.querySelectorAll('#f-conteudo-dificil input').forEach((c) => (c.checked = s.conteudo_maior_dificuldade.includes(c.value)));
+    $('form-titulo').textContent = 'Editar sala';
     s.horarios.forEach((h) => linhaHorario(h.dia, h.hora, h.fim)); document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = s.atividades.includes(c.value))); scrollTo(0, 0); }
 };
 
@@ -297,7 +309,7 @@ const url = (csv) => `/api/admin/relatorio/${$('r-tipo').value}?id=${$('r-alvo')
 const urlSalaDetalhada = () => `${url(false)}&detalhado=1`;
 const TITULOS_RELATORIO = {
   atividade: 'Conteúdo', aluno: 'Criança', sala: 'Turma', perguntas: 'Perguntas',
-  acertos: 'Acertos', percentual_acerto: 'Acerto (%)', pontos_total: 'Pontos',
+  acertos: 'Acertos', percentual_acerto: 'Aproveitamento (%)', pontos_total: 'Pontos',
   pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)'
 };
 const resumoRelatorio = (resumo) => `<div class="resumo-relatorio">${Object.entries(resumo || {}).map(([chave, valor]) =>
@@ -336,26 +348,27 @@ $('r-ver').onclick = async () => {
     });
       const dificuldadesDaSala = dadosSala.dificuldadesDaSala.filter((item) => item.percentual_acerto < 100);
       $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + `<h2>Dificuldades da turma</h2>
-      <p>Menor percentual de acerto indica maior dificuldade. Salas sem respostas próprias usam a aproximação agregada das turmas do mesmo ano.</p>
+      <p>Menor aproveitamento ponderado indica maior dificuldade. Salas sem respostas próprias usam a aproximação agregada das turmas do mesmo ano.</p>
       <h3>Atividades com menor acerto na sala</h3>${dificuldadesDaSala.length
-        ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Acerto (%)'],
+        ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Aproveitamento (%)'],
           dificuldadesDaSala.map((item) => [nomeAtividade(item.atividade), item.perguntas, item.acertos, `${item.percentual_acerto}%`]))
         : '<p>A sala ainda não tem dados de atividade nem uma turma do mesmo ano como referência.</p>'}
-      <h3>Atividade(s) com menor acerto por criança</h3>${tabela(['Criança', 'Atividade(s) para reforçar', 'Acerto (%)', 'Perguntas nessas atividades'], porAluno)}`;
+      <h3>Atividade(s) com menor acerto por criança</h3>${tabela(['Criança', 'Atividade(s) para reforçar', 'Aproveitamento (%)', 'Perguntas nessas atividades'], porAluno)}`;
   }
   if (tipoRelatorio === 'aluno') {
     const perguntas = rows.reduce((soma, r) => soma + r.perguntas, 0);
     const acertos = rows.reduce((soma, r) => soma + r.acertos, 0);
     const pontos = rows.reduce((soma, r) => soma + r.pontos_total, 0);
-    const percentual = perguntas ? `${(100 * acertos / perguntas).toFixed(1)}%` : '—';
+    const percentual = perguntas
+      ? `${(rows.reduce((soma, r) => soma + r.percentual_acerto * r.perguntas, 0) / perguntas).toFixed(1)}%` : '—';
     const menorAproveitamento = [...rows].sort((a, b) => a.percentual_acerto - b.percentual_acerto)[0];
     const nomeAluno = $('r-alvo').selectedOptions[0]?.textContent || 'Criança selecionada';
     $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + `<h2>Relatório de ${esc(nomeAluno)}</h2><p>Desempenho acumulado por conteúdo</p><div class="resumo-relatorio">
       <div class="metrica">Perguntas respondidas<b>${perguntas}</b></div>
-      <div class="metrica">Respostas certas<b>${acertos} de ${perguntas}</b></div>
-      <div class="metrica">Média de acerto<b>${percentual}</b></div>
+      <div class="metrica">Respostas marcadas corretas<b>${acertos} de ${perguntas}</b></div>
+      <div class="metrica">Aproveitamento ponderado<b>${percentual}</b></div>
       <div class="metrica">Pontos nas perguntas<b>${pontos}</b></div>
-    </div>${menorAproveitamento ? `<p class="destaque-relatorio">Conteúdo para reforçar: <b>${esc(NOMES[menorAproveitamento.atividade] || menorAproveitamento.atividade)}</b> (${menorAproveitamento.percentual_acerto}% de acerto)</p>` : ''}`;
+    </div>${menorAproveitamento ? `<p class="destaque-relatorio">Conteúdo para reforçar: <b>${esc(NOMES[menorAproveitamento.atividade] || menorAproveitamento.atividade)}</b> (${menorAproveitamento.percentual_acerto}% de aproveitamento)</p>` : ''}`;
   }
   if (geralDetalhado) {
     const nomeAtividade = (atividade) => NOMES[atividade] || atividade;
@@ -386,18 +399,18 @@ $('r-ver').onclick = async () => {
           <div>${resumoRelatorio(dadosSalaDet.resumo)}
             <h4>Desempenho das crianças</h4>
             ${alunos.length
-              ? tabela(['Criança', 'Perguntas', 'Acertos', 'Acerto (%)', 'Pontos', 'Tempo médio (s)'],
+              ? tabela(['Criança', 'Perguntas', 'Acertos', 'Aproveitamento (%)', 'Pontos', 'Tempo médio (s)'],
                 alunos.map((a) => [a.aluno, a.perguntas, a.acertos, a.percentual_acerto == null ? '—' : `${a.percentual_acerto}%`,
                   a.pontos_total, a.tempo_medio_s == null ? '—' : a.tempo_medio_s]))
               : '<p>Sem dados de crianças nesta sala.</p>'}
             <h4>Desempenho por atividade da sala</h4>
             ${dificuldadesDaSala.length
-              ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Acerto (%)'],
+              ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Aproveitamento (%)'],
                 dificuldadesDaSala.map((d) => [nomeAtividade(d.atividade), d.perguntas, d.acertos, `${d.percentual_acerto}%`]))
               : '<p>Sem dados por atividade nesta sala.</p>'}
             <h4>Desempenho por criança e atividade</h4>
             ${dificuldadesPorAluno.length
-              ? tabela(['Criança', 'Atividade', 'Perguntas', 'Acerto (%)'],
+              ? tabela(['Criança', 'Atividade', 'Perguntas', 'Aproveitamento (%)'],
                 dificuldadesPorAluno.map((d) => [d.aluno, nomeAtividade(d.atividade), d.perguntas, `${d.percentual_acerto}%`]))
               : '<p>Sem dados por criança e atividade nesta sala.</p>'}
           </div>
@@ -478,7 +491,9 @@ $('backup-importar').onclick = async () => {
 };
 
 async function carregarDadosCriancas() {
-  const rows = await api('/api/admin/dados-alunos');
+  const collator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
+  const rows = (await api('/api/admin/dados-alunos')).sort((a, b) =>
+    collator.compare(a.nome, b.nome) || collator.compare(a.sala, b.sala) || a.id - b.id || collator.compare(a.tipo, b.tipo));
   $('dados-criancas').innerHTML = rows.length
     ? `<div style="overflow-x:auto"><table><thead><tr><th>Criança</th><th>Sala</th><th>Registro</th><th>Respostas</th><th>Pontos</th><th>Ação</th></tr></thead><tbody>
       ${rows.map((r) => `<tr><td>${esc(r.nome)}</td><td>${esc(r.sala)}</td><td>#${r.id}</td><td>${r.perguntas}</td><td>${r.pontos}</td>

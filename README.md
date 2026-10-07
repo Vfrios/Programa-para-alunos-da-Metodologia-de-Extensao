@@ -39,7 +39,9 @@ Se `DB_FILE` estiver definido no Render, as salas, horários, conteúdos e regis
 
 Após uma quantidade aleatória de perguntas, sempre a partir da 7ª, há um desafio de pausa: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking. Para o 2º ano, os desafios usam níveis mais simples, memória com dois pares e 30 segundos; para o 3º ano, permanecem três pares e 15 segundos.
 
-No painel do professor, cada sessão em andamento mostra o tempo decorrido desde o início da atividade. Os relatórios por criança incluem perguntas respondidas, acertos, percentual médio de acerto, pontos e desempenho por conteúdo. O relatório **Geral** reúne o ranking de todas as salas e permite expandir cada sala para consultar o desempenho das crianças, os resultados por atividade da turma e por criança; as exportações CSV e PDF incluem o ranking e os dados de todas as salas. O relatório **Por sala** também destaca, por criança, os conteúdos com menor percentual de acerto e lista os conteúdos de menor acerto da turma. Esses indicadores usam respostas por atividade registradas no sistema; históricos agregados de planilhas sem informação por atividade aparecem como indisponíveis, sem estimativas.
+Nas perguntas respondidas pelo teclado numérico, a resposta correta é enviada automaticamente após a digitação; o botão **OK** continua disponível para enviar respostas manualmente.
+
+No painel do professor, cada sessão em andamento mostra o tempo decorrido desde o início da atividade. Os relatórios por criança incluem perguntas respondidas, acertos, percentual médio de acerto, pontos e desempenho por conteúdo. O percentual considera as tentativas: acerto na primeira vale 100%, após um erro vale 75%, após dois erros vale 25%, e respostas incorretas ou acertos após três erros valem 0%. A contagem de **Acertos** continua indicando quantas respostas foram registradas como corretas; por isso pode diferir do percentual ponderado. O relatório **Geral** reúne o ranking de todas as salas e permite expandir cada sala para consultar o desempenho das crianças, os resultados por atividade da turma e por criança; as exportações CSV e PDF incluem o ranking e os dados de todas as salas. O relatório **Por sala** também destaca, por criança, os conteúdos com menor percentual de acerto e lista os conteúdos de menor acerto da turma. Esses indicadores usam respostas por atividade registradas no sistema; históricos agregados de planilhas sem informação por atividade aparecem como indisponíveis, sem estimativas.
 
 Cada conteúdo possui 30 modelos diferentes de enunciado. O sistema os embaralha e percorre os 30 antes de repetir um modelo para a mesma criança e conteúdo; os números, sequências, figuras e objetos também continuam variando conforme a atividade e o nível.
 
@@ -53,7 +55,7 @@ Os dados agregados das planilhas entram nos relatórios **Geral** e **Por sala**
 4. Admin → **Iniciar atividade** → todos recebem a 1ª pergunta ao mesmo tempo.
 5. **Encerrar sessão** → ranking final, histórico e prêmios são salvos.
 
-Cadastre o dia, o horário de início e o fim de cada aula em **Salas**. O fim padrão fica 55 minutos depois do início (por exemplo, 14:40–15:35), mas pode ser alterado. No início programado, a sessão abre sozinha e encerra no horário de fim configurado.
+Em **Salas**, selecione um ou mais conteúdos para reforçar; todos os conteúdos escolhidos recebem o ajuste de nível configurado para a turma. Cadastre também o dia, o horário de início e o fim de cada aula. O fim padrão fica 55 minutos depois do início (por exemplo, 14:40–15:35), mas pode ser alterado. No início programado, a sessão abre sozinha e encerra no horário de fim configurado.
 
 ## Estrutura
 
