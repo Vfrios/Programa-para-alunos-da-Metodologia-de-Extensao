@@ -478,31 +478,41 @@ app.get('/api/admin/ranking', auth, ok((req, res) => {
   res.json(req.query.sala_id ? (s ? ranking(s.id) : []) : rankingGeral());
 }));
 
-const csv = (rows) => { if (!rows.length) return ''; const k = Object.keys(rows[0]).filter((coluna) => coluna !== 'origem'), q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  return '\ufeff' + [k.join(','), ...rows.map((r) => k.map((c) => q(r[c])).join(','))].join('\n'); };
-const pdf = (rows, resumo, adicionais = []) => new Promise((resolve) => {
-  const doc = new PDFDocument({ size: 'A4', margin: 42, bufferPages: true });
+const csv = (rows, { incluirBOM = true } = {}) => {
+  if (!rows.length) return '';
+  const k = Object.keys(rows[0]).filter((coluna) => coluna !== 'origem');
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const conteudo = [k.map(q).join(','), ...rows.map((r) => k.map((c) => q(r[c])).join(','))].join('\n');
+  return `${incluirBOM ? '\ufeff' : ''}${conteudo}`;
+};
+const pdf = (rows, resumo, adicionais = [], salasPorDetalhes = null) => new Promise((resolve) => {
+  const doc = new PDFDocument({ size: 'A4', layout: salasPorDetalhes ? 'landscape' : 'portrait', margin: 42, bufferPages: true });
   const partes = [];
   doc.on('data', (parte) => partes.push(parte));
   doc.on('end', () => resolve(Buffer.concat(partes)));
-  const largura = 511;
+  const largura = doc.page.width - 84;
   const titulo = (texto) => doc.font('Helvetica-Bold').fontSize(16).fillColor('#1d2b4f').text(texto);
   const secao = (texto) => { doc.x = 42; doc.moveDown(0.8); doc.font('Helvetica-Bold').fontSize(11).fillColor('#1d2b4f').text(texto, 42); doc.moveDown(0.25); };
-  const garantirEspaco = (altura) => { if (doc.y + altura > 790) doc.addPage(); };
+  const garantirEspaco = (altura) => { if (doc.y + altura > doc.page.height - 42) doc.addPage(); };
   const valor = (item) => String(item ?? '-');
   const colunas = rows.length ? Object.keys(rows[0]).filter((coluna) => coluna !== 'origem') : [];
-  const nomesColunas = { aluno: 'Aluno', sala: 'Sala', perguntas: 'Perguntas', acertos: 'Acertos', percentual_acerto: 'Acerto (%)', pontos_total: 'Pontos', pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)', atividade: 'Atividade' };
+  const nomesColunas = { aluno: 'Aluno', sala: 'Sala', perguntas: 'Perguntas', acertos: 'Acertos', percentual_acerto: 'Acerto (%)', pontos_total: 'Pontos', pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)', atividade: 'Atividade', indicador: 'Indicador', valor: 'Valor' };
+  const nomesAtividades = { soma: 'Soma', subtracao: 'Subtração', multiplicacao: 'Multiplicação', sequencia: 'Sequências numéricas', formas: 'Formas geométricas', medidas: 'Medidas', par_impar: 'Par ou ímpar', maior_menor: 'Maior ou menor', antecessor_sucessor: 'Antecessor e sucessor' };
   const tabela = (cabecalhos, dados) => {
     const larguras = cabecalhos.map((_, indice) => indice === 0 ? 180 : (largura - 180) / Math.max(1, cabecalhos.length - 1));
     const linha = (valores, cabecalho = false) => {
-      const altura = 22;
+      const fonte = cabecalho ? 'Helvetica-Bold' : 'Helvetica';
+      const altura = Math.max(22, ...valores.map((item, indice) => {
+        doc.font(fonte).fontSize(8);
+        return doc.heightOfString(valor(item), { width: larguras[indice] - 8 }) + 8;
+      }));
       garantirEspaco(altura);
       const y = doc.y;
       let x = 42;
       valores.forEach((item, indice) => {
         doc.rect(x, y, larguras[indice], altura).fillAndStroke(cabecalho ? '#cfe3f5' : '#ffffff', '#b8cfe2');
-        doc.font(cabecalho ? 'Helvetica-Bold' : 'Helvetica').fontSize(8).fillColor('#1d2b4f')
-          .text(valor(item), x + 4, y + 6, { width: larguras[indice] - 8, height: 12, ellipsis: true });
+        doc.font(fonte).fontSize(8).fillColor('#1d2b4f')
+          .text(valor(item), x + 4, y + 4, { width: larguras[indice] - 8, height: altura - 8 });
         x += larguras[indice];
       });
       doc.y = y + altura;
@@ -528,7 +538,6 @@ const pdf = (rows, resumo, adicionais = []) => new Promise((resolve) => {
   }
   if (adicionais.length) {
     secao('Dificuldades');
-    const nomesAtividades = { soma: 'Soma', subtracao: 'Subtração', sequencia: 'Sequências numéricas', formas: 'Formas geométricas', par_impar: 'Par ou ímpar', maior_menor: 'Maior ou menor', antecessor_sucessor: 'Antecessor e sucessor' };
     const dificuldadesSala = [], dificuldadesAluno = [];
     let bloco = '';
     adicionais.forEach((linha) => {
@@ -551,7 +560,36 @@ const pdf = (rows, resumo, adicionais = []) => new Promise((resolve) => {
       tabela(['Aluno', 'Atividade(s) para reforçar'], dificuldadesAluno);
     }
   }
-  if (rows.length) {
+  if (salasPorDetalhes) {
+    secao('Ranking Geral');
+    if (rows.length) tabela(colunas.map((coluna) => nomesColunas[coluna] || coluna),
+      rows.map((row) => colunas.map((coluna) => row[coluna] == null ? '-' : row[coluna])));
+    else doc.font('Helvetica').fontSize(9).fillColor('#526579').text('Sem dados para o ranking geral.');
+    Object.values(salasPorDetalhes).forEach((sala) => {
+      secao(`Sala: ${sala.nome}`);
+      const resumoSala = Object.entries(sala.resumo || {}).map(([indicador, item]) => ({ indicador, valor: item }));
+      if (resumoSala.length) tabela(['Indicador', 'Valor'], resumoSala.map((item) => [item.indicador, item.valor]));
+      if (sala.alunos.length) {
+        doc.x = 42; doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#1d2b4f').text('Desempenho das crianças', 42);
+        const colunasAlunos = Object.keys(sala.alunos[0]).filter((coluna) => coluna !== 'origem');
+        tabela(colunasAlunos.map((coluna) => nomesColunas[coluna] || coluna),
+          sala.alunos.map((aluno) => colunasAlunos.map((coluna) => aluno[coluna] == null ? '-' : aluno[coluna])));
+      }
+      if (sala.dificuldadesDaSala.length) {
+        doc.x = 42; doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#1d2b4f').text('Desempenho por atividade da sala', 42);
+        tabela(['Atividade', 'Perguntas', 'Acertos', 'Acerto (%)'],
+          sala.dificuldadesDaSala.map((item) => [nomesAtividades[item.atividade] || item.atividade, item.perguntas, item.acertos, item.percentual_acerto]));
+      }
+      if (sala.dificuldadesPorAluno.length) {
+        doc.x = 42; doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#1d2b4f').text('Desempenho por criança e atividade', 42);
+        tabela(['Aluno', 'Atividade', 'Perguntas', 'Acerto (%)'],
+          sala.dificuldadesPorAluno.map((item) => [item.aluno, nomesAtividades[item.atividade] || item.atividade, item.perguntas, item.percentual_acerto]));
+      }
+    });
+  } else if (rows.length) {
     secao('Dados dos alunos');
     tabela(colunas.map((coluna) => nomesColunas[coluna] || coluna), rows.map((row) => colunas.map((coluna) => row[coluna] == null ? '-' : row[coluna])));
   }
@@ -572,7 +610,7 @@ function resumoRelatorio(tipo, id, rows) {
     horario = get('SELECT hora,fim FROM horarios WHERE sala_id=? ORDER BY id LIMIT 1', id);
     if (horario) sessao = { inicio: horario.hora, fim: horario.fim };
   }
-  const horarioIndisponivel = tipo === 'geral' ? 'Indisponível no ranking geral' : 'Indisponível na planilha';
+  const horarioIndisponivel = (tipo === 'geral' || tipo === 'geral-detalhado') ? 'Indisponível no ranking geral' : 'Indisponível na planilha';
   const duracao = sessao?.inicio && sessao?.fim
     ? (horario ? Math.max(0, paraMin(sessao.fim) - paraMin(sessao.inicio)) : minutosEntre(sessao.inicio, sessao.fim)) : null;
   return {
@@ -602,18 +640,89 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
         CASE WHEN ai.estimado=1 THEN 'Estimado' ELSE 'Planilha' END
       FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? AND ai.total_respostas>0
     ) ORDER BY pontos_total DESC, aluno`, id, id);
-  else rows = all(`SELECT aluno, sala, perguntas, acertos, percentual_acerto, pontos, origem
+  else if (req.params.tipo === 'geral' || req.params.tipo === 'geral-detalhado') {
+    rows = all(`SELECT aluno, sala, perguntas, acertos, percentual_acerto, pontos
+      FROM (
+        SELECT a.nome AS aluno, sa.nome AS sala, COUNT(r.id) AS perguntas,
+          COALESCE(SUM(r.correta),0) AS acertos,
+          CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+          COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
+        FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id
+        GROUP BY a.id
+        UNION ALL
+        SELECT ai.nome, s.nome, ai.total_respostas, ai.acertos, ai.percentual_acerto, ai.pontos_total
+        FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
+        JOIN salas s ON s.id=i.sala_id
+      ) ORDER BY pontos DESC, aluno LIMIT 50`);
+    const salas = all('SELECT id, nome FROM salas ORDER BY nome');
+    const salasPorDetalhes = {};
+    salas.forEach((sala) => {
+      const alunosSala = all(`SELECT aluno, perguntas, acertos, percentual_acerto, pontos_total, tempo_medio_s
+        FROM (
+          SELECT a.nome AS aluno, COUNT(r.id) AS perguntas, COALESCE(SUM(r.correta),0) AS acertos,
+            CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
+            COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos_total,
+            ROUND(AVG(r.tempo),1) AS tempo_medio_s
+          FROM alunos a LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id
+          UNION ALL
+          SELECT ai.nome, ai.total_respostas, ai.acertos, ai.percentual_acerto, ai.pontos_total, ai.tempo_medio_s
+          FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=?
+        ) ORDER BY pontos_total DESC, aluno`, sala.id, sala.id);
+      const dificuldadesPorAluno = all(`SELECT a.id AS aluno_id,a.nome AS aluno,r.atividade,COUNT(*) AS perguntas,
+          ROUND(100.0 * SUM(r.correta) / COUNT(*),1) AS percentual_acerto
+        FROM alunos a JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=?
+        GROUP BY a.id,r.atividade
+        UNION ALL
+        SELECT NULL,ai.nome,ia.atividade,ia.perguntas,ia.percentual_acerto
+        FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
+        JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? AND ia.perguntas>0
+        ORDER BY aluno,percentual_acerto,atividade`, sala.id, sala.id);
+      const dificuldadesDaSala = all(`SELECT atividade,SUM(perguntas) AS perguntas,SUM(acertos) AS acertos,
+          ROUND(100.0 * SUM(acertos) / SUM(perguntas),1) AS percentual_acerto
+        FROM (
+          SELECT r.atividade,COUNT(*) perguntas,SUM(r.correta) acertos FROM respostas r JOIN alunos a ON a.id=r.aluno_id WHERE a.sala_id=? GROUP BY r.atividade
+          UNION ALL
+          SELECT ia.atividade,ia.perguntas,ia.acertos FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
+          JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? AND ia.perguntas>0
+        ) GROUP BY atividade ORDER BY percentual_acerto,perguntas DESC,atividade`, sala.id, sala.id);
+      salasPorDetalhes[sala.id] = {
+        nome: sala.nome,
+        alunos: alunosSala,
+        dificuldadesPorAluno,
+        dificuldadesDaSala,
+        resumo: resumoRelatorio('sala', sala.id, alunosSala)
+      };
+    });
+    const resumo = resumoRelatorio(req.params.tipo, id, rows);
+    if (req.query.pdf) {
+      pdf(rows, null, [], salasPorDetalhes).then((arquivo) => {
+        res.type('application/pdf').set('Content-Disposition', `attachment; filename="relatorio-${req.params.tipo}.pdf"`).send(arquivo);
+      });
+    } else if (req.query.csv) {
+      const q = (valor) => `"${String(valor ?? '').replace(/"/g, '""')}"`;
+      const bloco = (titulo, dados) => `\n\n${q(titulo)}\n${csv(dados, { incluirBOM: false })}`;
+      const partes = [`\ufeff${q('Ranking Geral')}\n${csv(rows, { incluirBOM: false })}`];
+      Object.values(salasPorDetalhes).forEach((sala) => {
+        partes.push(bloco(`Sala: ${sala.nome} — Resumo`, Object.entries(sala.resumo || {}).map(([indicador, valor]) => ({ indicador, valor }))));
+        partes.push(bloco(`Sala: ${sala.nome} — Desempenho das crianças`, sala.alunos));
+        partes.push(bloco(`Sala: ${sala.nome} — Desempenho por atividade`, sala.dificuldadesDaSala));
+        partes.push(bloco(`Sala: ${sala.nome} — Desempenho por criança e atividade`, sala.dificuldadesPorAluno));
+      });
+      res.type('text/csv').send(partes.join(''));
+    } else if (req.query.detalhado) res.json({ resumo, rows, salasPorDetalhes });
+    else res.json(rows);
+    return;
+  }
+  else rows = all(`SELECT aluno, sala, perguntas, acertos, percentual_acerto, pontos
     FROM (
       SELECT a.nome AS aluno, sa.nome AS sala, COUNT(r.id) AS perguntas,
         COALESCE(SUM(r.correta),0) AS acertos,
         CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(r.correta) / COUNT(r.id), 1) END AS percentual_acerto,
-        COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos,
-        'Atividade' AS origem
+        COALESCE(SUM(r.pontos),0) + COALESCE((SELECT SUM(d.pontos) FROM desafios d WHERE d.aluno_id=a.id),0) AS pontos
       FROM alunos a JOIN salas sa ON sa.id=a.sala_id LEFT JOIN respostas r ON r.aluno_id=a.id
       GROUP BY a.id
       UNION ALL
-      SELECT ai.nome, s.nome, ai.total_respostas, ai.acertos, ai.percentual_acerto, ai.pontos_total,
-        CASE WHEN ai.estimado=1 THEN 'Estimado' ELSE 'Planilha' END
+      SELECT ai.nome, s.nome, ai.total_respostas, ai.acertos, ai.percentual_acerto, ai.pontos_total
       FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
       JOIN salas s ON s.id=i.sala_id WHERE ai.total_respostas>0
     ) ORDER BY pontos DESC, aluno LIMIT 50`);

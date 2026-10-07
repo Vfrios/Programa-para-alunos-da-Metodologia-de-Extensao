@@ -416,6 +416,7 @@ Ao final de cada aula, o sistema deve:
 
 O sistema deve gerar relatórios:
 
+- **Geral:** ranking conjunto de todas as turmas, com detalhes expansíveis por turma e exportação completa em CSV ou PDF.
 - **Por aluno:** histórico de respostas, níveis, pontos e tempos.
 - **Por turma:** desempenho médio, total de respostas e tempo médio.
 - **Por aula:** ranking final de cada aula, com data e hora.

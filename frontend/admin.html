@@ -21,6 +21,8 @@
   .timer{font-size:1.2rem}.resumo-relatorio{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
   .metrica{background:#fff;border:2px solid var(--grade);border-radius:10px;padding:10px}.metrica b{display:block;font-size:1.4rem}
   .destaque-relatorio{background:#fff6cf;border-radius:10px;padding:10px;margin:12px 0}
+  .sala-expandivel summary{cursor:pointer}.sala-expandivel summary::marker{color:var(--azul)}
+  .sala-expandivel h4{margin-bottom:6px}
   #erro{color:#c0392b;font-weight:600}
   @media print{header,.sem-print{display:none}main{max-width:none;padding:0}.caixa,.item{box-shadow:none}}
   @media(max-width:600px){#r-tabela{overflow-x:auto}table{min-width:600px}}
@@ -75,7 +77,7 @@
 
   <section id="aba-rel" class="aba">
     <div class="caixa sem-print"><div class="linha">
-      <select id="r-tipo"><option value="geral">Geral (ranking de todos)</option><option value="sala">Por sala</option></select>
+      <select id="r-tipo"><option value="geral">Geral</option><option value="sala">Por sala</option></select>
       <select id="r-alvo"></select><button id="r-ver">Ver</button><button id="r-csv">Exportar CSV</button><button id="r-pdf">Exportar PDF</button></div></div>
     <div id="r-resumo"></div><div id="r-tabela"></div>
   </section>
@@ -286,7 +288,7 @@ $('lista-salas').onclick = async (e) => {
 
 // ---------- Relatórios ----------
 async function alvos() {
-  const t = $('r-tipo').value; $('r-alvo').style.display = t === 'geral' ? 'none' : '';
+  const t = $('r-tipo').value; $('r-alvo').style.display = (t === 'geral' || t === 'geral-detalhado') ? 'none' : '';
   if (t === 'sala') $('r-alvo').innerHTML = salas.map((s) => `<option value="${s.id}">${esc(s.nome)}</option>`).join('');
   if (t === 'aluno') $('r-alvo').innerHTML = (await api('/api/admin/alunos')).map((a) => `<option value="${a.id}">${esc(a.nome)} (${esc(a.sala)})</option>`).join('');
 }
@@ -296,23 +298,25 @@ const urlSalaDetalhada = () => `${url(false)}&detalhado=1`;
 const TITULOS_RELATORIO = {
   atividade: 'Conteúdo', aluno: 'Criança', sala: 'Turma', perguntas: 'Perguntas',
   acertos: 'Acertos', percentual_acerto: 'Acerto (%)', pontos_total: 'Pontos',
-  pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)', origem: 'Origem'
+  pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)'
 };
 const resumoRelatorio = (resumo) => `<div class="resumo-relatorio">${Object.entries(resumo || {}).map(([chave, valor]) =>
   `<div class="metrica">${esc(chave)}<b>${esc(valor)}</b></div>`).join('')}</div>`;
 $('r-ver').onclick = async () => {
-  const porSala = $('r-tipo').value === 'sala';
+  const tipoRelatorio = $('r-tipo').value;
+  const porSala = tipoRelatorio === 'sala';
+  const geralDetalhado = tipoRelatorio === 'geral' || tipoRelatorio === 'geral-detalhado';
   const pacote = await api(`${url(false)}&detalhado=1`);
   const dadosSala = porSala ? pacote : null;
   const rows = porSala ? dadosSala.relatorioAlunos : pacote.rows;
   $('r-resumo').replaceChildren();
-  if (!rows.length) {
-    $('r-tabela').innerHTML = `<p>${$('r-tipo').value === 'aluno' ? 'Esta criança ainda não respondeu perguntas.' : 'Sem dados para este relatório.'}</p>`;
+  if (!rows.length && !geralDetalhado) {
+    $('r-tabela').innerHTML = `<p>${tipoRelatorio === 'aluno' ? 'Esta criança ainda não respondeu perguntas.' : 'Sem dados para este relatório.'}</p>`;
     return;
   }
-  if ($('r-tipo').value === 'geral') {
+  if (tipoRelatorio === 'geral') {
     $('r-resumo').replaceChildren();
-  } else if ($('r-tipo').value === 'sala') {
+  } else if (tipoRelatorio === 'sala') {
     $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + '<p>O total de perguntas é o maior número respondido por uma criança; o tempo médio é ponderado pelas perguntas.</p>';
   }
   if (porSala) {
@@ -339,7 +343,7 @@ $('r-ver').onclick = async () => {
         : '<p>A sala ainda não tem dados de atividade nem uma turma do mesmo ano como referência.</p>'}
       <h3>Atividade(s) com menor acerto por criança</h3>${tabela(['Criança', 'Atividade(s) para reforçar', 'Acerto (%)', 'Perguntas nessas atividades'], porAluno)}`;
   }
-  if ($('r-tipo').value === 'aluno') {
+  if (tipoRelatorio === 'aluno') {
     const perguntas = rows.reduce((soma, r) => soma + r.perguntas, 0);
     const acertos = rows.reduce((soma, r) => soma + r.acertos, 0);
     const pontos = rows.reduce((soma, r) => soma + r.pontos_total, 0);
@@ -352,6 +356,56 @@ $('r-ver').onclick = async () => {
       <div class="metrica">Média de acerto<b>${percentual}</b></div>
       <div class="metrica">Pontos nas perguntas<b>${pontos}</b></div>
     </div>${menorAproveitamento ? `<p class="destaque-relatorio">Conteúdo para reforçar: <b>${esc(NOMES[menorAproveitamento.atividade] || menorAproveitamento.atividade)}</b> (${menorAproveitamento.percentual_acerto}% de acerto)</p>` : ''}`;
+  }
+  if (geralDetalhado) {
+    const nomeAtividade = (atividade) => NOMES[atividade] || atividade;
+    const tabela = (cabecalhos, linhas) => `<div style="overflow-x:auto"><table><thead><tr>${cabecalhos.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${linhas.map((linha) => `<tr>${linha.map((celula) => `<td>${esc(celula)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    $('r-resumo').innerHTML = '<p>Ranking geral de todos os alunos. Expanda cada sala para consultar o desempenho individual e por atividade.</p>';
+    let tabelaHTML = `<h2>Ranking Geral</h2>`;
+    if (rows.length) {
+      const k = Object.keys(rows[0]);
+      const valor = (coluna, linha) => {
+        if (coluna === 'atividade') return NOMES[linha[coluna]] || linha[coluna];
+        if (linha[coluna] == null) return '—';
+        if (coluna === 'percentual_acerto') return `${linha[coluna]}%`;
+        return linha[coluna];
+      };
+      tabelaHTML += `<table><thead><tr>${k.map((c) => `<th>${esc(TITULOS_RELATORIO[c] || c)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map((r) => `<tr>${k.map((c) => `<td>${esc(valor(c, r))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    } else {
+      tabelaHTML += '<p>Sem dados para o ranking geral.</p>';
+    }
+    if (pacote.salasPorDetalhes && Object.keys(pacote.salasPorDetalhes).length) {
+      tabelaHTML += `<h2>Dados por Sala</h2>`;
+      for (const dadosSalaDet of Object.values(pacote.salasPorDetalhes)) {
+        const alunos = dadosSalaDet.alunos || [];
+        const dificuldadesDaSala = dadosSalaDet.dificuldadesDaSala || [];
+        const dificuldadesPorAluno = dadosSalaDet.dificuldadesPorAluno || [];
+        tabelaHTML += `<details class="item sala-expandivel">
+          <summary>${esc(dadosSalaDet.nome)} <small>(${alunos.length} crianças)</small></summary>
+          <div>${resumoRelatorio(dadosSalaDet.resumo)}
+            <h4>Desempenho das crianças</h4>
+            ${alunos.length
+              ? tabela(['Criança', 'Perguntas', 'Acertos', 'Acerto (%)', 'Pontos', 'Tempo médio (s)'],
+                alunos.map((a) => [a.aluno, a.perguntas, a.acertos, a.percentual_acerto == null ? '—' : `${a.percentual_acerto}%`,
+                  a.pontos_total, a.tempo_medio_s == null ? '—' : a.tempo_medio_s]))
+              : '<p>Sem dados de crianças nesta sala.</p>'}
+            <h4>Desempenho por atividade da sala</h4>
+            ${dificuldadesDaSala.length
+              ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Acerto (%)'],
+                dificuldadesDaSala.map((d) => [nomeAtividade(d.atividade), d.perguntas, d.acertos, `${d.percentual_acerto}%`]))
+              : '<p>Sem dados por atividade nesta sala.</p>'}
+            <h4>Desempenho por criança e atividade</h4>
+            ${dificuldadesPorAluno.length
+              ? tabela(['Criança', 'Atividade', 'Perguntas', 'Acerto (%)'],
+                dificuldadesPorAluno.map((d) => [d.aluno, nomeAtividade(d.atividade), d.perguntas, `${d.percentual_acerto}%`]))
+              : '<p>Sem dados por criança e atividade nesta sala.</p>'}
+          </div>
+        </details>`;
+      }
+    }
+    $('r-tabela').innerHTML = tabelaHTML;
+    return;
   }
   const k = Object.keys(rows[0]).filter((coluna) => coluna !== 'origem');
   const valor = (coluna, linha) => {
@@ -426,8 +480,8 @@ $('backup-importar').onclick = async () => {
 async function carregarDadosCriancas() {
   const rows = await api('/api/admin/dados-alunos');
   $('dados-criancas').innerHTML = rows.length
-    ? `<div style="overflow-x:auto"><table><thead><tr><th>Criança</th><th>Sala</th><th>Origem</th><th>Registro</th><th>Respostas</th><th>Pontos</th><th>Ação</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td>${esc(r.nome)}</td><td>${esc(r.sala)}</td><td>${r.tipo === 'aluno' ? 'Atividade' : 'Planilha'}</td><td>#${r.id}</td><td>${r.perguntas}</td><td>${r.pontos}</td>
+    ? `<div style="overflow-x:auto"><table><thead><tr><th>Criança</th><th>Sala</th><th>Registro</th><th>Respostas</th><th>Pontos</th><th>Ação</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${esc(r.nome)}</td><td>${esc(r.sala)}</td><td>#${r.id}</td><td>${r.perguntas}</td><td>${r.pontos}</td>
         <td><button type="button" data-editar-crianca="${r.id}" data-tipo-crianca="${r.tipo}" data-nome-crianca="${esc(r.nome)}">Editar nome</button> <button type="button" data-excluir-crianca="${r.id}" data-tipo-crianca="${r.tipo}" data-nome-crianca="${esc(r.nome)}" data-sala-crianca="${esc(r.sala)}">Excluir dados</button></td></tr>`).join('')}
       </tbody></table></div>`
     : '<p>Nenhum dado de criança encontrado.</p>';
