@@ -2,6 +2,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path');
 const { sincronizarCadastros } = require('./database-seed');
+const { migrateActivityMetrics } = require('./database-migrations');
 const { horaFim } = require('./agendamento');
 const caminhoBase = path.resolve(__dirname, '../database/matematica.db');
 const caminhoBanco = process.env.DB_FILE === ':memory:' ? ':memory:'
@@ -25,6 +26,7 @@ const db = new DatabaseSync(caminhoBanco);
 console.log(`Banco SQLite em uso: ${caminhoBanco}`);
 db.exec(fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8'));
 db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000;');
+migrateActivityMetrics(db);
 for (const [tabela, coluna, definicao] of [
   ['admins', 'papel', `TEXT NOT NULL DEFAULT 'admin' CHECK (papel IN ('admin','primario'))`],
   ['historico_ranking', 'aluno_id', 'INTEGER'],
@@ -32,7 +34,8 @@ for (const [tabela, coluna, definicao] of [
   ['sessoes', 'fim_previsto_em', 'TEXT'],
   ['alunos_importados', 'acertos', 'INTEGER'],
   ['alunos_importados', 'percentual_acerto', 'REAL'],
-  ['alunos_importados', 'estimado', 'INTEGER NOT NULL DEFAULT 0']
+  ['alunos_importados', 'estimado', 'INTEGER NOT NULL DEFAULT 0'],
+  ['exclusoes_alunos_importados', 'nome', 'TEXT']
 ]) {
   const colunas = new Set(db.prepare(`PRAGMA table_info(${tabela})`).all().map((coluna) => coluna.name));
   if (!colunas.has(coluna)) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${definicao}`);

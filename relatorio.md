@@ -23,17 +23,46 @@ Assim, a programação aparece como parte da construção e do funcionamento do 
 
 ## Visitas e atividades
 
-Foram realizadas **7 visitas**, com **50 minutos de atividade por visita**, totalizando **350 minutos (5 horas e 50 minutos)**. Os dias e horários abaixo correspondem aos horários cadastrados para as sete turmas. O cadastro não contém as datas de calendário das visitas nem listas de presença; por isso, os números na última coluna indicam somente alunos encontrados nos registros históricos da respectiva sala, e não confirmam quantos estiveram presentes em cada visita.
+Foram realizadas **7 visitas**, com **50 minutos de atividade por visita**, totalizando **350 minutos (5 horas e 50 minutos)**. Os dias e horários abaixo correspondem aos horários cadastrados para as sete turmas. A planilha geral atualizada, exportada em **8 de outubro de 2026**, registra alunos com dados de atividade em cinco turmas; esses registros não são listas de presença e não confirmam quantos alunos estiveram presentes em cada visita.
 
-| Visita | Turma | Dia e horário cadastrado | Alunos nos registros disponíveis |
+| Visita | Turma | Dia e horário cadastrado | Alunos com dados na planilha |
 |---:|---|---|---:|
 | 1 | 3º ano, turma 7 | Segunda-feira, 13h30-14h25 | 18 |
 | 2 | 2º ano, turma 7 | Segunda-feira, 14h40-15h35 | 19 |
 | 3 | 2º ano, turma 4 | Terça-feira, 14h40-15h35 | 21 |
 | 4 | 3º ano, turma 5 | Terça-feira, 16h30-17h25 | 20 |
-| 5 | 2º ano, turma 8 | Quinta-feira, 13h00-13h55 | Não informado |
-| 6 | 3º ano, turma 6 | Quinta-feira, 14h40-15h35 | Não informado |
-| 7 | 3º ano, turma 8 | Quinta-feira, 16h30-17h25 | Não informado |
+| 5 | 2º ano, turma 8 | Quinta-feira, 13h00-13h55 | 18 |
+| 6 | 3º ano, turma 6 | Quinta-feira, 14h40-15h35 | Sem dados de atividade |
+| 7 | 3º ano, turma 8 | Quinta-feira, 16h30-17h25 | Sem dados de atividade |
+
+## Resultados da planilha geral
+
+A exportação reúne dados de **96 alunos** em cinco turmas, com **7.304 perguntas respondidas** e **7.141 acertos**. O aproveitamento médio ponderado registrado pelo sistema foi de **96,8%**; esse indicador considera as tentativas, portanto não corresponde necessariamente à divisão simples entre acertos e perguntas. O tempo médio ponderado foi de **20,2 segundos por pergunta**, e a soma dos pontos registrados para os alunos foi de **745.370 pontos**.
+
+| Turma | Alunos com dados | Perguntas | Acertos | Aproveitamento ponderado | Pontos acumulados | Tempo médio por pergunta |
+|---|---:|---:|---:|---:|---:|---:|
+| 3º ano, turma 7 | 18 | 1.478 | 1.466 | 99,2% | 150.145 | 12,8 s |
+| 2º ano, turma 7 | 19 | 1.784 | 1.727 | 96,8% | 177.980 | 22,6 s |
+| 2º ano, turma 4 | 21 | 1.288 | 1.246 | 96,7% | 116.885 | 23,2 s |
+| 3º ano, turma 5 | 20 | 1.837 | 1.824 | 99,3% | 208.610 | 16,4 s |
+| 2º ano, turma 8 | 18 | 917 | 878 | 88,0% | 91.750 | 31,2 s |
+| 3º ano, turma 6 | — | — | — | — | — | — |
+| 3º ano, turma 8 | — | — | — | — | — | — |
+| **Total** | **96** | **7.304** | **7.141** | **96,8%** | **745.370** | **20,2 s** |
+
+O detalhamento por conteúdo disponível na planilha é:
+
+| Conteúdo | Perguntas registradas | Aproveitamento ponderado |
+|---|---:|---:|
+| Antecessor e sucessor | 1.662 | 96,7% |
+| Formas geométricas | 464 | 99,8% |
+| Maior e menor | 636 | 97,9% |
+| Par ou ímpar | 1.778 | 97,2% |
+| Sequências | 601 | 96,3% |
+| Soma | 604 | 96,8% |
+| Subtração | 1.559 | 95,3% |
+
+Os percentuais são os indicadores de aproveitamento ponderados pelas perguntas de cada turma ou conteúdo, conforme os dados exportados; não representam diagnóstico individual. Para preservar a privacidade das crianças, este relatório apresenta resultados consolidados, sem nomes. As duas turmas sem registros de atividade foram mantidas sem valores, em vez de serem tratadas como desempenho zero.
 
 Os horários cadastrados abrangem 50 minutos: 45 minutos de atividade e 5 minutos previstos para o encerramento. As datas específicas e a quantidade efetiva de participantes devem ser confirmadas com os registros de presença da escola, caso precisem constar como dados de cada visita.
 

@@ -37,7 +37,7 @@ Na aba **Backup**, o administrador primário pode baixar um arquivo SQLite com o
 
 Se `DB_FILE` estiver definido no Render, as salas, horários, conteúdos e registros agregados do banco incluído no repositório são sincronizados na inicialização para esse banco, sem duplicar itens nem substituir salas remotas com IDs conflitantes. Registros removidos da fonte deixam de aparecer também no histórico sincronizado. Para publicar salas novas criadas localmente, inclua o banco atualizado em um commit enviado à branch configurada no Render; o app não sincroniza automaticamente as alterações do SQLite de volta ao computador.
 
-Após uma quantidade aleatória de perguntas, sempre a partir da 7ª, há um desafio de pausa: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking. Para o 2º ano, os desafios usam níveis mais simples, memória com dois pares e 30 segundos; para o 3º ano, permanecem três pares e 15 segundos.
+Após uma quantidade aleatória de perguntas, sempre a partir da 7ª, há um desafio de pausa: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking, e acertar antes faz a próxima atividade começar imediatamente. Todos os desafios têm limite de 15 segundos. Para o 2º ano, os desafios usam níveis mais simples e memória com dois pares; para o 3º ano, permanecem três pares.
 
 Nas perguntas respondidas pelo teclado numérico, a resposta correta é enviada automaticamente após a digitação; o botão **OK** continua disponível para enviar respostas manualmente.
 
@@ -46,6 +46,16 @@ No painel do professor, cada sessão em andamento mostra o tempo decorrido desde
 Cada conteúdo possui 30 modelos diferentes de enunciado. O sistema os embaralha e percorre os 30 antes de repetir um modelo para a mesma criança e conteúdo; os números, sequências, figuras e objetos também continuam variando conforme a atividade e o nível.
 
 Os dados agregados das planilhas entram nos relatórios **Geral** e **Por sala**, junto com os dados das atividades atuais. Eles estão no banco incluído no deploy e também são sincronizados para um banco remoto configurado por `DB_FILE` na inicialização do Render, sem duplicar registros. As quatro planilhas aparecem como **Planilha** nos relatórios. Os dados por atividade são agregados e não representam respostas individuais reais; médias de tempo ausentes permanecem indisponíveis.
+
+### Importar a planilha da próxima aula
+
+Exporte a planilha do Excel como **CSV UTF-8**. O relatório pode conter uma ou várias salas, mas importe uma sala por vez usando o ID da sala no banco. O comando atualiza a carga mais recente daquela sala, sem duplicar os alunos, e preserva exclusões feitas pelo administrador primário:
+
+```powershell
+node backend\importar-planilha.js --sala 13 --arquivo "C:\caminho\relatorio-geral.csv"
+```
+
+Confira os IDs das salas no painel do professor em **Salas** ou no arquivo `database\matematica.db`. Para publicar os dados no Render, inclua o banco `database\matematica.db` atualizado no próximo commit/deploy; se `DB_FILE` aponta para o banco remoto, os dados agregados e atividades serão sincronizados quando o serviço iniciar. Guarde um backup antes de substituir uma carga existente.
 
 ## Como testar sem esperar o horário
 

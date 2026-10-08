@@ -70,7 +70,7 @@ const rankingGeral = () => all(`SELECT id, nome, sala, pontos FROM (
     SELECT NULL, ai.nome, sa.nome, ai.pontos_total
     FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
     JOIN salas sa ON sa.id=i.sala_id
-  ) ORDER BY pontos DESC, nome LIMIT 50`);
+  ) ORDER BY pontos DESC, nome`);
 const terminaram = (sid) => get('SELECT COUNT(DISTINCT aluno_id) n FROM respostas WHERE sessao_id=?', sid).n;
 const primeira = () => abertas().sort((x, y) => (x.status === 'aguardando' ? -1 : 1) - (y.status === 'aguardando' ? -1 : 1))[0];
 
@@ -86,10 +86,10 @@ function resumo(alunoId) {
 const painel = () => abertas().map((s) => ({ id: s.id, sala_id: s.sala_id, sala: s.sala, status: s.status,
   conectados: online.get(s.id)?.size || 0, alunos: get('SELECT COUNT(*) n FROM alunos WHERE sessao_id=?', s.id).n,
   aberta_em: s.aberta_em, iniciada_em: s.iniciada_em, encerrada_em: s.encerrada_em,
-  terminaram: terminaram(s.id), ranking: ranking(s.id).slice(0, 10) }));
+  terminaram: terminaram(s.id), ranking: ranking(s.id) }));
 function emitirPainel() { const p = painel(); io.to('admin').emit('painel', p); p.forEach((s) => io.to('s' + s.id).emit('conectados', s.conectados)); }
 function emitirRanking() {
-  abertas().forEach((s) => io.to('s' + s.id).emit('ranking', ranking(s.id).slice(0, 10)));
+  abertas().forEach((s) => io.to('s' + s.id).emit('ranking', ranking(s.id)));
   emitirPainel();
 }
 
@@ -127,7 +127,7 @@ function encerrarSessao(id) {
     const m = resumo(r.id); pendentes.delete(r.id); desafiosPendentes.delete(r.id); proximoDesafioPorAluno.delete(r.id); sorteadoresModelo.delete(r.id);
     run('INSERT INTO premiacoes(aluno_id,sessao_id,premio,nota,media) VALUES(?,?,?,?,?)', r.id, id, m.premio, m.nota, m.media);
   });
-  io.to('s' + id).emit('encerrada', rk.slice(0, 10));
+  io.to('s' + id).emit('encerrada', rk);
   online.delete(id); io.emit('estado'); emitirPainel();
 }
 
@@ -285,7 +285,7 @@ app.post('/api/desafio', ok((req, res) => {
   if (!pendente || pendente.sessaoId !== a.sessao_id || pendente.rodada !== rodada) {
     const perfil = get('SELECT COALESCE(AVG(nivel),1) nivel FROM perfis WHERE aluno_id=?', id);
     const p = criarDesafio(rodada, perfil.nivel, a.ano);
-    const tempoLimite = a.ano === 2 ? 30 : 15;
+    const tempoLimite = 15;
     pendente = { p, iniciadoEm: Date.now(), rodada, sessaoId: a.sessao_id, tempoLimite, concluido: false };
     desafiosPendentes.set(id, pendente);
   }
@@ -471,11 +471,14 @@ app.delete('/api/admin/dados-alunos', authPrimario, ok((req, res) => {
   db.exec('BEGIN IMMEDIATE');
   try {
     if (tipo === 'importado') {
-      const importado = get(`SELECT ai.id,ai.linha_origem,i.sala_id,i.arquivo
+      const importado = get(`SELECT ai.id,ai.linha_origem,ai.nome,i.sala_id,i.arquivo
         FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE ai.id=?`, id);
       if (!importado) throw new Error('Registro não encontrado; atualize a lista e tente novamente.');
-      run(`INSERT OR IGNORE INTO exclusoes_alunos_importados(sala_id,arquivo,linha_origem)
-        VALUES(?,?,?)`, importado.sala_id, importado.arquivo, importado.linha_origem);
+      run(`INSERT INTO exclusoes_alunos_importados(sala_id,arquivo,linha_origem,nome)
+        VALUES(?,?,?,?) ON CONFLICT(sala_id,arquivo,linha_origem)
+        DO UPDATE SET nome=COALESCE(exclusoes_alunos_importados.nome,excluded.nome)`,
+      importado.sala_id, importado.arquivo, importado.linha_origem, importado.nome);
+      run('DELETE FROM alunos_importados_atividades WHERE aluno_importado_id=?', id);
       if (run('DELETE FROM alunos_importados WHERE id=?', id).changes !== 1) {
         throw new Error('Registro não encontrado; atualize a lista e tente novamente.');
       }
@@ -688,7 +691,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
         SELECT ai.nome, s.nome, ai.total_respostas, ai.acertos, ai.percentual_acerto, ai.pontos_total
         FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
         JOIN salas s ON s.id=i.sala_id
-      ) ORDER BY pontos DESC, aluno LIMIT 50`);
+      ) ORDER BY pontos DESC, aluno`);
     const salas = all('SELECT id, nome FROM salas ORDER BY nome');
     const salasPorDetalhes = {};
     salas.forEach((sala) => {
@@ -764,7 +767,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       SELECT ai.nome, s.nome, ai.total_respostas, ai.acertos, ai.percentual_acerto, ai.pontos_total
       FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
       JOIN salas s ON s.id=i.sala_id WHERE ai.total_respostas>0
-    ) ORDER BY pontos DESC, aluno LIMIT 50`);
+    ) ORDER BY pontos DESC, aluno`);
   const resumo = resumoRelatorio(req.params.tipo, id, rows);
   const adicionaisPdf = [];
   if (req.params.tipo === 'sala') {

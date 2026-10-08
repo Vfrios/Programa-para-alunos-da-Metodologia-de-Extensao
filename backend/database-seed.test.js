@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { sincronizarCadastros } = require('./database-seed');
+const { migrateActivityMetrics } = require('./database-migrations');
 
 test('guarda relatórios importados separados das respostas da aplicação', () => {
   const db = new DatabaseSync(':memory:');
@@ -34,7 +35,7 @@ function criarBanco(comFim = false) {
     CREATE TABLE alunos_importados(id INTEGER PRIMARY KEY AUTOINCREMENT, importacao_id INTEGER NOT NULL, linha_origem INTEGER NOT NULL,
       nome TEXT NOT NULL, total_respostas INTEGER NOT NULL, pontos_total INTEGER NOT NULL, tempo_medio_s REAL, UNIQUE(importacao_id,linha_origem));
     CREATE TABLE exclusoes_alunos_importados(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, arquivo TEXT NOT NULL,
-      linha_origem INTEGER NOT NULL, UNIQUE(sala_id,arquivo,linha_origem));
+      linha_origem INTEGER NOT NULL, nome TEXT, UNIQUE(sala_id,arquivo,linha_origem));
   `);
   return db;
 }
@@ -109,6 +110,71 @@ test('leva os dados históricos ao banco Render sem duplicar e só para salas co
   origem.close(); destino.close();
 });
 
+test('atualiza métricas históricas e substitui atividades existentes na sincronização', () => {
+  const origem = new DatabaseSync(':memory:'), destino = new DatabaseSync(':memory:');
+  const schema = fs.readFileSync(path.resolve(__dirname, '../database/schema.sql'), 'utf8');
+  origem.exec(schema); destino.exec(schema);
+  origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(9, 'Turma A', 3, 'Docente');
+  destino.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(9, 'Turma A', 3, 'Docente');
+  const importacaoOrigem = Number(origem.prepare('INSERT INTO importacoes_sala(sala_id,arquivo) VALUES(?,?)')
+    .run(9, 'relatorio-geral.csv').lastInsertRowid);
+  const importacaoDestino = Number(destino.prepare('INSERT INTO importacoes_sala(sala_id,arquivo) VALUES(?,?)')
+    .run(9, 'relatorio-geral.csv').lastInsertRowid);
+  const alunoOrigem = Number(origem.prepare(`INSERT INTO alunos_importados
+    (importacao_id,linha_origem,nome,total_respostas,pontos_total,tempo_medio_s,acertos,percentual_acerto)
+    VALUES(?,?,?,?,?,?,?,?)`).run(importacaoOrigem, 2, 'Ana', 20, 1000, 12, 18, 90).lastInsertRowid);
+  const alunoDestino = Number(destino.prepare(`INSERT INTO alunos_importados
+    (importacao_id,linha_origem,nome,total_respostas,pontos_total,tempo_medio_s,acertos,percentual_acerto)
+    VALUES(?,?,?,?,?,?,?,?)`).run(importacaoDestino, 2, 'Ana', 10, 500, 15, 8, 80).lastInsertRowid);
+  origem.prepare(`INSERT INTO alunos_importados_atividades
+    (aluno_importado_id,atividade,perguntas,acertos,percentual_acerto,pontos_total)
+    VALUES(?,?,?,?,?,?)`).run(alunoOrigem, 'soma', 10, 9, 90, 500);
+  destino.prepare(`INSERT INTO alunos_importados_atividades
+    (aluno_importado_id,atividade,perguntas,acertos,percentual_acerto,pontos_total)
+    VALUES(?,?,?,?,?,?)`).run(alunoDestino, 'subtracao', 10, 8, 80, 400);
+
+  assert.equal(sincronizarCadastros(destino, origem).alunosHistoricos, 1);
+  assert.equal(destino.prepare('SELECT total_respostas FROM alunos_importados WHERE id=?').get(alunoDestino).total_respostas, 20);
+  assert.equal(destino.prepare('SELECT atividade FROM alunos_importados_atividades WHERE aluno_importado_id=?')
+    .get(alunoDestino).atividade, 'soma');
+
+  origem.prepare('UPDATE alunos_importados SET total_respostas=30 WHERE id=?').run(alunoOrigem);
+  origem.prepare('UPDATE alunos_importados_atividades SET perguntas=20 WHERE aluno_importado_id=?').run(alunoOrigem);
+  origem.prepare(`INSERT INTO alunos_importados_atividades
+    (aluno_importado_id,atividade,perguntas,percentual_acerto) VALUES(?,?,?,?)`)
+    .run(alunoOrigem, 'divisao', 5, 75);
+  sincronizarCadastros(destino, origem);
+  assert.equal(destino.prepare('SELECT total_respostas FROM alunos_importados WHERE id=?').get(alunoDestino).total_respostas, 30);
+  const atividades = destino.prepare(`SELECT atividade,perguntas,acertos,percentual_acerto,pontos_total
+    FROM alunos_importados_atividades WHERE aluno_importado_id=? ORDER BY atividade`).all(alunoDestino);
+  assert.equal(atividades.length, 2);
+  assert.equal(atividades[0].atividade, 'divisao');
+  assert.equal(atividades[0].acertos, null);
+  assert.equal(atividades[0].pontos_total, null);
+  assert.equal(atividades[1].atividade, 'soma');
+  assert.equal(atividades[1].perguntas, 20);
+  origem.close(); destino.close();
+});
+
+test('remove apenas atividades históricas sem registro de aluno ao sincronizar', () => {
+  const origem = criarBanco(), destino = criarBanco(true);
+  origem.exec(`CREATE TABLE alunos_importados_atividades(id INTEGER PRIMARY KEY AUTOINCREMENT,
+    aluno_importado_id INTEGER NOT NULL, atividade TEXT NOT NULL, perguntas INTEGER NOT NULL,
+    acertos INTEGER, percentual_acerto REAL, pontos_total INTEGER, tempo_medio_s REAL,
+    UNIQUE(aluno_importado_id,atividade));`);
+  destino.exec(`CREATE TABLE alunos_importados_atividades(id INTEGER PRIMARY KEY AUTOINCREMENT,
+    aluno_importado_id INTEGER NOT NULL, atividade TEXT NOT NULL, perguntas INTEGER NOT NULL,
+    acertos INTEGER, percentual_acerto REAL, pontos_total INTEGER, tempo_medio_s REAL,
+    UNIQUE(aluno_importado_id,atividade));`);
+  destino.prepare(`INSERT INTO alunos_importados_atividades
+    (aluno_importado_id,atividade,perguntas) VALUES(999,'obsoleta',1)`).run();
+
+  sincronizarCadastros(destino, origem);
+
+  assert.equal(destino.prepare('SELECT COUNT(*) AS count FROM alunos_importados_atividades').get().count, 0);
+  origem.close(); destino.close();
+});
+
 test('não restaura um histórico removido pelo administrador primário após reinicialização', () => {
   const origem = criarBanco(), destino = criarBanco(true);
   origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(9, 'Turma A', 3, 'Docente');
@@ -131,6 +197,31 @@ test('não restaura um histórico removido pelo administrador primário após re
   origem.close(); destino.close();
 });
 
+test('usa o nome da exclusão em vez de depender da posição original da linha', () => {
+  const origem = criarBanco(), destino = criarBanco(true);
+  origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(9, 'Turma A', 3, 'Docente');
+  destino.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(9, 'Turma A', 3, 'Docente');
+  const importacaoOrigem = Number(origem.prepare('INSERT INTO importacoes_sala(sala_id,arquivo) VALUES(?,?)')
+    .run(9, 'sala.csv').lastInsertRowid);
+  const importacaoDestino = Number(destino.prepare('INSERT INTO importacoes_sala(sala_id,arquivo) VALUES(?,?)')
+    .run(9, 'sala.csv').lastInsertRowid);
+  const inserirAluno = db => db.prepare(`INSERT INTO alunos_importados
+    (importacao_id,linha_origem,nome,total_respostas,pontos_total) VALUES(?,?,?,?,?)`);
+  inserirAluno(origem).run(importacaoOrigem, 2, 'Carla', 10, 500);
+  inserirAluno(origem).run(importacaoOrigem, 3, 'Ana', 8, 400);
+  destino.prepare(`INSERT INTO exclusoes_alunos_importados(sala_id,arquivo,linha_origem,nome)
+    VALUES(?,?,?,?)`).run(9, 'sala.csv', 2, 'Ana');
+
+  sincronizarCadastros(destino, origem);
+
+  const importados = destino.prepare('SELECT linha_origem,nome FROM alunos_importados WHERE importacao_id=?')
+    .all(importacaoDestino);
+  assert.equal(importados.length, 1);
+  assert.equal(importados[0].nome, 'Carla');
+  assert.equal(importados[0].linha_origem, 2);
+  origem.close(); destino.close();
+});
+
 test('importa o horário de fim quando a origem já o possui', () => {
   const origem = criarBanco(true), destino = criarBanco(true);
   origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(1, 'Turma A', 2, 'Professora');
@@ -144,26 +235,62 @@ test('importa o horário de fim quando a origem já o possui', () => {
 test('inicializar com DB_FILE importa os cadastros do banco que acompanha o deploy', () => {
   const pastaTemporaria = fs.mkdtempSync(path.join(os.tmpdir(), 'matematica-db-seed-'));
   const caminhoBanco = path.join(pastaTemporaria, 'render.db');
+  let banco, base;
   try {
-    execFileSync(process.execPath, ['-e', "require('./database').close()"], {
+    const inicializarBanco = () => execFileSync(process.execPath, ['-e', "require('./database').close()"], {
       cwd: __dirname,
       env: { ...process.env, DB_FILE: caminhoBanco },
       stdio: 'pipe',
     });
-    const banco = new DatabaseSync(caminhoBanco, { readOnly: true });
-    const base = new DatabaseSync(path.resolve(__dirname, '../database/matematica.db'), { readOnly: true });
-    for (const tabela of ['salas', 'horarios', 'conteudos', 'importacoes_sala', 'alunos_importados']) {
+    inicializarBanco();
+    banco = new DatabaseSync(caminhoBanco, { readOnly: true });
+    base = new DatabaseSync(path.resolve(__dirname, '../database/matematica.db'), { readOnly: true });
+    for (const tabela of ['salas', 'horarios', 'conteudos', 'importacoes_sala', 'alunos_importados',
+      'alunos_importados_atividades']) {
       assert.equal(banco.prepare(`SELECT COUNT(*) n FROM ${tabela}`).get().n,
         base.prepare(`SELECT COUNT(*) n FROM ${tabela}`).get().n);
     }
+    const totaisImportados = `SELECT COUNT(*) AS students,SUM(ai.total_respostas) AS questions,
+      SUM(ai.acertos) AS correct,SUM(ai.pontos_total) AS points FROM alunos_importados ai
+      JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id BETWEEN 9 AND 13`;
+    const totaisRender = banco.prepare(totaisImportados).get();
+    const totaisBase = base.prepare(totaisImportados).get();
+    assert.equal(JSON.stringify(totaisRender), JSON.stringify(totaisBase));
+    assert.deepEqual(Object.values(totaisRender), [66, 5136, 5013, 539490]);
     assert.equal(banco.prepare('SELECT COUNT(*) n FROM exclusoes_alunos_importados').get().n, 0);
     assert.ok(banco.prepare('PRAGMA table_info(horarios)').all().some((coluna) => coluna.name === 'fim'));
     assert.ok(banco.prepare('PRAGMA table_info(admins)').all().some((coluna) => coluna.name === 'papel'));
     assert.ok(banco.prepare('PRAGMA table_info(historico_ranking)').all().some((coluna) => coluna.name === 'aluno_id'));
     assert.ok(banco.prepare('PRAGMA table_info(sessoes)').all().some((coluna) => coluna.name === 'fim_previsto_em'));
     assert.equal(banco.prepare('SELECT COUNT(*) n FROM horarios WHERE fim IS NULL').get().n, 0);
-    banco.close(); base.close();
   } finally {
-    fs.rmSync(pastaTemporaria, { recursive: true, force: true });
+    banco?.close();
+    base?.close();
+    fs.rmSync(caminhoBanco, { force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(`${caminhoBanco}-shm`, { force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(`${caminhoBanco}-wal`, { force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmdirSync(pastaTemporaria);
   }
+});
+
+test('migra atividades históricas para aceitar métricas não fornecidas pelo relatório', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(`CREATE TABLE alunos_importados_atividades(id INTEGER PRIMARY KEY AUTOINCREMENT,
+    aluno_importado_id INTEGER NOT NULL, atividade TEXT NOT NULL, perguntas INTEGER NOT NULL,
+    acertos INTEGER NOT NULL, percentual_acerto REAL, pontos_total INTEGER NOT NULL,
+    tempo_medio_s REAL, UNIQUE(aluno_importado_id,atividade));
+    INSERT INTO alunos_importados_atividades(aluno_importado_id,atividade,perguntas,acertos,pontos_total)
+    VALUES(1,'soma',5,4,200);`);
+  migrateActivityMetrics(db);
+  const columns = new Map(db.prepare('PRAGMA table_info(alunos_importados_atividades)')
+    .all().map((column) => [column.name, column]));
+  assert.equal(columns.get('acertos').notnull, 0);
+  assert.equal(columns.get('pontos_total').notnull, 0);
+  assert.equal(db.prepare('SELECT atividade,acertos,pontos_total FROM alunos_importados_atividades WHERE id=1')
+    .get().acertos, 4);
+  db.prepare(`INSERT INTO alunos_importados_atividades
+    (aluno_importado_id,atividade,perguntas,percentual_acerto) VALUES(1,'subtracao',5,80)`).run();
+  assert.equal(db.prepare('SELECT acertos FROM alunos_importados_atividades WHERE atividade=?')
+    .get('subtracao').acertos, null);
+  db.close();
 });

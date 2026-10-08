@@ -272,13 +272,13 @@ async function iniciarPausa() {
   $('tabuleiro-memoria').hidden = true; $('pausa-opcoes').hidden = true; $('pausa-opcoes').replaceChildren();
   $('memoria-pares').hidden = true; $('pausa-instrucao').textContent = 'Resolva o desafio antes da próxima rodada.';
   $('pausa-contagem').textContent = 'Preparando o desafio...'; mostrar('t-pausa');
-  let restante = 20;
+  let restante = 15;
   try {
     const r = await api('/api/desafio', { alunoId: aluno.id });
     if (r.erro) throw new Error(r.erro);
     if (r.concluido) return proxima();
     desafioAtual = r;
-    restante = r.tempoRestante ?? r.tempoLimite ?? 20;
+    restante = r.tempoRestante ?? r.tempoLimite ?? 15;
     $('pausa-tempo').textContent = `Resolva em até ${r.tempoLimite} segundos. Cada desafio vale 50 pontos.`;
     $('pausa-instrucao').textContent = r.texto;
     if (r.tipo === 'memoria') {
@@ -311,11 +311,15 @@ async function iniciarPausa() {
 async function responderDesafio(resposta) {
   if (!desafioAtual || desafioResolvido || desafioEnviando) return;
   desafioEnviando = true;
+  let avancarAposDesafio = false;
   try {
     const r = await api('/api/desafio/resposta', { alunoId: aluno.id, resposta });
     if (r.erro) throw new Error(r.erro);
     if (r.correta) {
       desafioResolvido = true;
+      if (pausaTimer) clearInterval(pausaTimer);
+      pausaTimer = null;
+      avancarAposDesafio = true;
       total += r.pontos; $('pontos').textContent = total + ' pontos';
       $('pausa-instrucao').textContent = `Muito bem! +${r.pontos} pontos 🎉`;
       $('memoria-pares').textContent = `Desafio concluído! +${r.pontos} pontos`;
@@ -330,6 +334,7 @@ async function responderDesafio(resposta) {
     $('pausa-instrucao').textContent = 'Não foi possível confirmar a resposta. Verifique a conexão.';
   } finally {
     desafioEnviando = false;
+    if (avancarAposDesafio) proxima();
   }
 }
 
