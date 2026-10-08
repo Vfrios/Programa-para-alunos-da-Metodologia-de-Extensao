@@ -107,7 +107,7 @@
     </div>
 
     <div id="t-espera" class="tela" style="text-align:center">
-      <h2 id="ola"></h2><p style="font-size:1.7rem">Aguardando o professor iniciar a atividade...</p>
+      <h2 id="ola"></h2><p id="espera-texto" style="font-size:1.7rem">Aguardando o professor iniciar a atividade...</p>
       <div style="font-size:4rem">⏳</div><p id="conect" style="font-size:1.4rem"></p>
     </div>
 
@@ -160,6 +160,7 @@ const EMOJI = { Bronze: '🥉', Prata: '🥈', Ouro: '🥇', 'Troféu': '🏆', 
 const NOMES_UNIDADES = { mm: 'milímetros', cm: 'centímetros', m: 'metros', km: 'quilômetros', g: 'gramas', kg: 'quilogramas', mL: 'mililitros', L: 'litros' };
 
 let aluno = null, q = null, digitado = '', travado = false, verificarRespostaTimer = null, verificandoResposta = false, total = 0, dados = [], idade = null, encerrada = false;
+let perguntaCarregando = false, tentarPerguntaTimer = null, sincronizarPontuacao = false;
 let pausaTimer = null, jogoMemoriaAtivo = false, cartasMemoria = [], cartasViradas = [], paresMemoria = [], bloqueioMemoria = null, pacoteMemoriaAnterior = -1;
 let desafioAtual = null, desafioResolvido = false, desafioEnviando = false;
 
@@ -375,17 +376,66 @@ function entrar(status) {
 }
 
 // ---------- jogo ----------
+function agendarNovaTentativa() {
+  if (tentarPerguntaTimer || !aluno || encerrada) return;
+  tentarPerguntaTimer = setTimeout(() => {
+    tentarPerguntaTimer = null;
+    proxima();
+  }, 2000);
+}
+
+function recuperarPerguntaEmAndamento() {
+  q = null;
+  sincronizarPontuacao = true;
+  travado = true;
+  $('espera-texto').textContent = 'Reconectando à atividade...';
+  mostrar('t-espera');
+  proxima();
+}
+
 async function proxima() {
+  if (!aluno || perguntaCarregando || encerrada) return;
+  if (tentarPerguntaTimer) { clearTimeout(tentarPerguntaTimer); tentarPerguntaTimer = null; }
   if (pausaTimer) { clearInterval(pausaTimer); pausaTimer = null; }
   if (verificarRespostaTimer) { clearTimeout(verificarRespostaTimer); verificarRespostaTimer = null; }
   pararJogoMemoria();
   mostrar('t-espera');
-  travado = false; digitado = ''; $('msg').textContent = ''; $('msg').className = ''; $('dica').style.display = 'none';
-  const r = await api('/api/pergunta', { alunoId: aluno.id });
+  travado = true; digitado = ''; $('msg').textContent = ''; $('msg').className = ''; $('dica').style.display = 'none';
+  $('espera-texto').textContent = 'Carregando sua próxima pergunta...';
+  const alunoId = aluno.id;
+  perguntaCarregando = true;
+  let r;
+  try {
+    r = await api('/api/pergunta', { alunoId });
+  } catch {
+    perguntaCarregando = false;
+    if (aluno?.id !== alunoId) return;
+    $('espera-texto').textContent = 'Conexão instável. Vamos tentar retomar sua atividade automaticamente...';
+    agendarNovaTentativa();
+    return;
+  }
+  perguntaCarregando = false;
+  if (aluno?.id !== alunoId) return;
+  if (r.erro) {
+    $('espera-texto').textContent = `${r.erro} Tentando novamente...`;
+    agendarNovaTentativa();
+    return;
+  }
   if (r.encerrada) return fim();
   if (r.fim) return fim(r.resumo);
   if (r.pausa) return iniciarPausa();
-  if (r.erro) return mostrar('t-espera');
+  if (sincronizarPontuacao) {
+    try {
+      const resumo = await api('/api/resumo/' + alunoId);
+      if (Number.isFinite(resumo.pontos)) {
+        total = resumo.pontos;
+        $('pontos').textContent = total + ' pontos';
+      }
+      sincronizarPontuacao = false;
+    } catch {
+      $('pontos').textContent = 'Pontuação indisponível';
+    }
+  }
   q = r;
   $('prog').textContent = `Pergunta ${r.numero}${r.total ? ` de ${r.total}` : ''}`;
   $('texto').textContent = r.texto; mostrarCena(r.atividade, r.numero);
@@ -395,6 +445,8 @@ async function proxima() {
   if (r.tipo === 'digitar') montarTeclado();
   if (r.tipo === 'clicar') { $('a-clicar').innerHTML = ''; r.opcoes.forEach((o) => { const b = document.createElement('button'); b.textContent = o; b.onclick = () => enviar(o, b); $('a-clicar').appendChild(b); }); }
   if (r.tipo === 'arrastar') { $('alvo').textContent = '?'; $('alvo').classList.remove('certo'); $('chips').innerHTML = ''; r.opcoes.forEach((o) => $('chips').appendChild(chip(o))); }
+  $('espera-texto').textContent = 'Aguardando o professor iniciar a atividade...';
+  travado = false;
   mostrar('t-jogo');
 }
 function montarTeclado() {
@@ -405,7 +457,7 @@ function tecla(k) {
   if (travado) return;
   if (k === '⌫') digitado = digitado.slice(0, -1);
   else if (k === 'OK') { if (digitado) enviar(digitado); return; }
-  else if (digitado.length < 4) digitado += k;
+  else if (digitado.length < (q?.maxDigitos || 3)) digitado += k;
   $('visor').textContent = digitado;
   agendarVerificacaoResposta();
 }
@@ -421,6 +473,7 @@ function agendarVerificacaoResposta() {
     try {
       const resultado = await api('/api/resposta/teclado', { alunoId: aluno.id, resposta });
       if (resultado.correta) return enviar(resposta, null, resultado);
+      if (resultado.erro === 'Sem pergunta em andamento.') return recuperarPerguntaEmAndamento();
       if (resultado.erro && !travado && digitado === resposta) {
         $('msg').textContent = resultado.erro;
         $('msg').className = 'erro';
@@ -464,9 +517,10 @@ async function enviar(resposta, el, resultadoConfirmado = null) {
   let r;
   try { r = resultadoConfirmado || await api('/api/resposta', { alunoId: aluno.id, resposta }); }
   catch {
-    msg.textContent = 'Não foi possível confirmar. Verifique a conexão e tente novamente.';
-    msg.className = 'erro'; travado = false; return;
+    msg.textContent = 'Conexão instável. Retomando sua pergunta automaticamente...';
+    msg.className = 'erro'; sincronizarPontuacao = true; agendarNovaTentativa(); return;
   }
+  if (r.erro === 'Sem pergunta em andamento.') return recuperarPerguntaEmAndamento();
   if (r.erro) { msg.textContent = r.erro; msg.className = 'erro'; travado = false; return; }
   if (r.correta) {
     total += r.pontos; $('pontos').textContent = total + ' pontos'; $('pontos').classList.add('pula'); setTimeout(() => $('pontos').classList.remove('pula'), 500);
@@ -491,6 +545,7 @@ async function enviar(resposta, el, resultadoConfirmado = null) {
 
 // ---------- fim ----------
 async function fim(res) {
+  if (tentarPerguntaTimer) { clearTimeout(tentarPerguntaTimer); tentarPerguntaTimer = null; }
   if (pausaTimer) { clearInterval(pausaTimer); pausaTimer = null; }
   pararJogoMemoria();
   res = res || await api('/api/resumo/' + aluno.id);

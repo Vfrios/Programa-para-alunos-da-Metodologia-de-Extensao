@@ -50,7 +50,7 @@ test('simula 15 perguntas com acertos rapidos e progressao gradual', () => {
   const respostas = Array.from({ length: 15 }, () => ({ correta: true, segundos: 4 }));
   const percurso = simularPerguntas(respostas);
 
-  assert.deepEqual(percurso.map(({ nivelAplicado }) => nivelAplicado), [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 5, 5, 5, 5, 5]);
+  assert.deepEqual(percurso.map(({ nivelAplicado }) => nivelAplicado), [1, 1, 2, 2, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4]);
   assert.deepEqual(percurso.map(({ nivelApos }) => nivelApos), [1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5, 5, 5, 5, 5, 5, 5]);
 });
 
@@ -77,15 +77,42 @@ test('nivel inicial gera a conta basica 1 + 1', () => {
   }
 });
 
-test('nivel mais alto chega aos numeros dos materiais de referencia', () => {
+test('a turma do 3º ano limita as perguntas a numeros de ate tres digitos', () => {
   const aleatorioOriginal = Math.random;
   Math.random = () => 0.99999;
   try {
-    const pergunta = gerarPergunta('soma', 5);
-    assert.match(pergunta.texto, /9999/);
-    assert.equal(pergunta.resposta, '19998');
+    const pergunta = gerarPergunta('soma', 5, undefined, 3);
+    assert.equal(pergunta.nivel, 4);
+    assert.match(pergunta.texto, /899/);
+    assert.equal(Number(pergunta.resposta), 999);
   } finally {
     Math.random = aleatorioOriginal;
+  }
+});
+
+test('a turma do 2º ano nunca recebe numeros com mais de dois digitos', () => {
+  for (const atividade of ATIVIDADES_POR_ANO[2]) {
+    for (let tentativa = 0; tentativa < 100; tentativa++) {
+      const pergunta = gerarPergunta(atividade, 5, undefined, 2);
+      const numeros = [...pergunta.texto.matchAll(/\d+/g)].map(([numero]) => Number(numero));
+      const opcoes = (pergunta.opcoes || []).map(Number).filter(Number.isFinite);
+      assert.equal(pergunta.nivel, 3);
+      assert.ok([...numeros, ...opcoes, Number(pergunta.resposta)].filter(Number.isFinite).every((numero) => numero <= 99),
+        `${atividade}: ${pergunta.texto} = ${pergunta.resposta}`);
+    }
+  }
+});
+
+test('a turma do 3º ano nunca recebe numeros com mais de tres digitos', () => {
+  for (const atividade of ATIVIDADES) {
+    for (let tentativa = 0; tentativa < 100; tentativa++) {
+      const pergunta = gerarPergunta(atividade, 5, undefined, 3);
+      const numeros = [...pergunta.texto.matchAll(/\d+/g)].map(([numero]) => Number(numero));
+      const opcoes = (pergunta.opcoes || []).map(Number).filter(Number.isFinite);
+      assert.equal(pergunta.nivel, 4);
+      assert.ok([...numeros, ...opcoes, Number(pergunta.resposta)].filter(Number.isFinite).every((numero) => numero <= 999),
+        `${atividade}: ${pergunta.texto} = ${pergunta.resposta}`);
+    }
   }
 });
 

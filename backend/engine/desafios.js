@@ -1,5 +1,5 @@
 const TIPOS_DESAFIO = ['memoria', 'calculo', 'sequencia', 'par_impar', 'maior_menor'];
-const LIMITES = { 1: 5, 2: 10, 3: 99, 4: 999, 5: 9999 };
+const LIMITES = { 1: 5, 2: 10, 3: 99, 4: 999, 5: 999 };
 const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
 const mix = (a) => [...a].sort(() => Math.random() - 0.5);
 
@@ -10,7 +10,7 @@ function tipoDoDesafio(rodada) {
 
 function criarDesafio(rodada, nivel = 1, ano = 3) {
   const tipo = tipoDoDesafio(rodada);
-  const nivelMaximo = Number(ano) === 2 ? 2 : 5;
+  const nivelMaximo = Number(ano) === 2 ? 2 : 4;
   const n = Math.max(1, Math.min(nivelMaximo, Math.floor(Number(nivel) || 1)));
   const limite = LIMITES[n];
 
@@ -20,10 +20,10 @@ function criarDesafio(rodada, nivel = 1, ano = 3) {
   }
   if (tipo === 'calculo') {
     const limiteCalculo = Number(ano) === 2 ? Math.min(limite, 5) : limite;
-    const x = rnd(1, limiteCalculo), y = rnd(1, limiteCalculo), resposta = String(x + y);
+    const x = rnd(1, limiteCalculo - 1), y = rnd(1, limiteCalculo - x), resposta = String(x + y);
     const opcoes = new Set([resposta]);
     while (opcoes.size < 3) {
-      const alternativa = Math.max(0, Number(resposta) + rnd(-5, 5));
+      const alternativa = Math.max(0, Math.min(limiteCalculo, Number(resposta) + rnd(-5, 5)));
       opcoes.add(String(Number(ano) === 2 ? Math.min(10, alternativa) : alternativa));
     }
     return { tipo, nivel: n, texto: `Resolva no tempo: ${x} + ${y} = ?`, resposta, opcoes: mix([...opcoes]) };

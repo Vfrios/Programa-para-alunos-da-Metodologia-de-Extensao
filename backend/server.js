@@ -200,16 +200,17 @@ app.post('/api/pergunta', ok((req, res) => {
     const at = sorteadoresAtividade.get(id)(ativ);
     const turma = get('SELECT conteudo_maior_dificuldade FROM salas WHERE id=?', a.sala_id);
     const nivelBase = get('SELECT nivel FROM perfis WHERE aluno_id=? AND atividade=?', id, at)?.nivel ?? 1;
-    const nivel = Math.min(5, nivelBase + (conteudosReforco(turma?.conteudo_maior_dificuldade).includes(at) ? 1 : 0));
+    const nivel = Math.min(a.ano === 2 ? 3 : 4,
+      nivelBase + (conteudosReforco(turma?.conteudo_maior_dificuldade).includes(at) ? 1 : 0));
     if (!sorteadoresModelo.has(id)) sorteadoresModelo.set(id, new Map());
     const modelosDoAluno = sorteadoresModelo.get(id);
     if (!modelosDoAluno.has(at)) modelosDoAluno.set(at, criarSorteadorDeModelos());
-    const pergunta = gerarPergunta(at, nivel, modelosDoAluno.get(at));
-    q = { p: pergunta, nivelReal: nivel, t0: Date.now(), erros: 0, dica: 0, sessaoId: a.sessao_id, combo: comboPorAluno.get(id) || 0 };
+    const pergunta = gerarPergunta(at, nivel, modelosDoAluno.get(at), a.ano);
+    q = { p: pergunta, nivelReal: nivel, nivelMaximo: a.ano === 2 ? 3 : 4, t0: Date.now(), erros: 0, dica: 0, sessaoId: a.sessao_id, combo: comboPorAluno.get(id) || 0 };
     pendentes.set(id, q);
   }
   const { resposta, dica, ...pub } = q.p;
-  res.json({ ...pub, numero: feitas + 1, total: TOTAL || null });
+  res.json({ ...pub, numero: feitas + 1, total: TOTAL || null, maxDigitos: a.ano === 2 ? 2 : 3 });
 }));
 
 function processarResposta(id, resposta) {
@@ -233,7 +234,7 @@ function processarResposta(id, resposta) {
   }
   if (out.terminou) {
     const pontos = correta ? calcularPontos({ nivel: q.nivelReal, tempoSegundos: seg, tentativas: q.erros + (correta ? 1 : 0), dica: q.dica, correta: true, combo: comboNovo }) : 0;
-    const nivel = ajustarNivel(q.nivelReal, correta, seg, q.erros + 1);
+    const nivel = Math.min(q.nivelMaximo, ajustarNivel(q.nivelReal, correta, seg, q.erros + 1));
     run('INSERT INTO respostas(aluno_id,sessao_id,atividade,nivel,pergunta,resposta,correta,tentativas,dica,pontos,tempo) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
       id, q.sessaoId, q.p.atividade, q.nivelReal, q.p.texto, String(resposta), correta ? 1 : 0, q.erros + (respondeuCorreto ? 1 : 0), q.dica, pontos, seg);
     run(`INSERT INTO perfis(aluno_id,atividade,nivel,acertos,erros,tempo_medio) VALUES(?,?,?,?,?,?)

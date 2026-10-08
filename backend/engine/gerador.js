@@ -1,5 +1,5 @@
 // Geração automática de perguntas + dicas. Nada de perguntas no banco.
-const FAIXAS = { 1: [1, 5], 2: [1, 10], 3: [10, 99], 4: [100, 999], 5: [1000, 9999] };
+const FAIXAS = { 1: [1, 5], 2: [1, 10], 3: [10, 99], 4: [100, 999], 5: [100, 999] };
 const FATOR  = { 1: [1, 3], 2: [2, 5], 3: [2, 7], 4: [3, 9], 5: [5, 10] };
 const PASSOS_SEQUENCIA = { 1: [1], 2: [1, 2], 3: [2, 5], 4: [5, 10], 5: [10, 100] };
 const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
@@ -112,11 +112,11 @@ const MODELOS_ENUNCIADO = {
 const preencherModelo = (modelo, valores) =>
   modelo.replace(/\{(\w+)\}/g, (_, chave) => String(valores[chave]));
 
-function opcoesNumericas(resposta, quantidade = 3) {
+function opcoesNumericas(resposta, quantidade = 3, limite = Infinity) {
   const opcoes = new Set([resposta]);
   while (opcoes.size < quantidade) {
-    const tentativa = resposta + rnd(-5, 5);
-    if (tentativa >= 0 && tentativa !== resposta) opcoes.add(tentativa);
+    const tentativa = Math.max(0, Math.min(limite, resposta + rnd(-5, 5)));
+    if (tentativa !== resposta) opcoes.add(tentativa);
   }
   return mix([...opcoes].map(String));
 }
@@ -156,15 +156,16 @@ function criarSorteadorDeModelos() {
 }
 
 const G = {
-  soma(n, sortearModelo) { const [a, b] = FAIXAS[n]; const x = rnd(a, b), y = rnd(a, b);
+  soma(n, sortearModelo, limite) { const [a, b] = FAIXAS[n]; const x = rnd(a, Math.min(b, limite - a)), y = rnd(a, Math.min(b, limite - x));
     const texto = preencherModelo(escolher(MODELOS_ENUNCIADO.soma, sortearModelo), { x, y });
     return { texto, tipo: 'digitar', resposta: x + y }; },
   subtracao(n, sortearModelo) { const [a, b] = FAIXAS[n]; let x = rnd(a, b), y = rnd(a, b); if (x === y) y = y === b ? y - 1 : y + 1; if (y > x) [x, y] = [y, x];
     const texto = preencherModelo(escolher(MODELOS_ENUNCIADO.subtracao, sortearModelo), { x, y });
     return { texto, tipo: 'digitar', resposta: x - y }; },
-  antecessor_sucessor(n, sortearModelo) {
-    const [min, max] = FAIXAS[n], base = rnd(Math.max(2, min), max);
+  antecessor_sucessor(n, sortearModelo, limite) {
+    const [min, max] = FAIXAS[n];
     const tipo = Math.random() < 0.5 ? 'antecessor' : 'sucessor';
+    const base = rnd(Math.max(2, min), Math.min(max, limite - (tipo === 'sucessor' ? 1 : 0)));
     const valor = tipo === 'antecessor' ? base - 1 : base + 1;
     const direcao = tipo === 'antecessor' ? 'antes' : 'depois';
     const lado = tipo === 'antecessor' ? 'trás' : 'à frente';
@@ -178,15 +179,16 @@ const G = {
     return { texto, tipo: 'arrastar', opcoes: opcoesNumericas(r), resposta: r,
       dica: { texto: `${x} × ${y} é o mesmo que ${Array(y).fill(x).join(' + ')}`, visual: `${Array(y).fill('🍎'.repeat(x)).join(' + ')} = ${r} 🍎` } };
   },
-  sequencia(n, sortearModelo) {
+  sequencia(n, sortearModelo, limite) {
     const passos = PASSOS_SEQUENCIA[n], passo = passos[rnd(0, passos.length - 1)];
     const direcao = Math.random() < 0.5 ? 1 : -1;
-    const inicio = rnd(4, 10) * passo, lacuna = rnd(1, 3);
+    const multiplicadorMaximo = Math.min(10, Math.floor(limite / passo) - 3);
+    const inicio = rnd(4, Math.max(4, multiplicadorMaximo)) * passo, lacuna = rnd(1, 3);
     const valores = Array.from({ length: 4 }, (_, i) => inicio + direcao * passo * i);
     const resposta = valores[lacuna];
     valores[lacuna] = '__';
     const texto = preencherModelo(escolher(MODELOS_ENUNCIADO.sequencia, sortearModelo), { sequencia: valores.join(', ') });
-    return { texto, tipo: 'clicar', opcoes: opcoesNumericas(resposta), resposta,
+    return { texto, tipo: 'clicar', opcoes: opcoesNumericas(resposta, 3, limite), resposta,
       dica: { texto: `A sequência avança ou volta de ${passo} em ${passo}.` } };
   },
   formas(n, sortearModelo) {
@@ -212,9 +214,12 @@ const G = {
     return { texto, tipo: 'clicar', opcoes: [String(x), String(y)], resposta: maior ? Math.max(x, y) : Math.min(x, y) }; },
 };
 
-function gerarPergunta(atividade, nivel, sortearModelo) {
+function gerarPergunta(atividade, nivel, sortearModelo, ano = 3) {
   const g = G[atividade]; if (!g) throw new Error('Atividade inválida');
-  const n = Math.max(1, Math.min(5, Math.floor(nivel))), p = g(n, sortearModelo);
+  const limiteNivel = Number(ano) === 2 ? 3 : 4;
+  const n = Math.max(1, Math.min(limiteNivel, Math.floor(nivel)));
+  const limiteNumero = Number(ano) === 2 ? 99 : 999;
+  const p = g(n, sortearModelo, limiteNumero);
   return { atividade, nivel: n, ...p, resposta: String(p.resposta), dica: p.dica || { texto: DICAS[atividade] } };
 }
 module.exports = { ATIVIDADES: Object.keys(G), ATIVIDADES_POR_ANO, MODELOS_ENUNCIADO, gerarPergunta, criarSorteadorDeAtividades, criarSorteadorDeModelos };

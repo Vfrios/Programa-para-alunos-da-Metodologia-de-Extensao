@@ -37,9 +37,9 @@ test('os desafios do 2º ano limitam o nível e reduzem a memória para dois par
   }
 });
 
-test('os desafios do 3º ano mantêm o nível e os três pares de memória', () => {
+test('os desafios do 3º ano limitam o nível a três dígitos e mantêm três pares de memória', () => {
   const desafio = criarDesafio(1, 5, 3);
-  assert.equal(desafio.nivel, 5);
+  assert.equal(desafio.nivel, 4);
   assert.equal(desafio.pares, 3);
 });
 
@@ -49,5 +49,17 @@ test('os desafios numéricos do 2º ano usam valores de até dez', () => {
     const numeros = [...desafio.texto.matchAll(/\d+/g)].map(([numero]) => Number(numero));
     const opcoes = (desafio.opcoes || []).map(Number).filter(Number.isFinite);
     assert.ok([...numeros, ...opcoes].every((numero) => numero <= 10));
+  }
+});
+
+test('os desafios numéricos do 3º ano não ultrapassam três dígitos', () => {
+  for (const rodada of [2, 3, 4, 5]) {
+    for (let tentativa = 0; tentativa < 100; tentativa++) {
+      const desafio = criarDesafio(rodada, 5, 3);
+      const numeros = [...desafio.texto.matchAll(/\d+/g)].map(([numero]) => Number(numero));
+      const opcoes = (desafio.opcoes || []).map(Number).filter(Number.isFinite);
+      assert.ok([...numeros, ...opcoes, Number(desafio.resposta)].filter(Number.isFinite).every((numero) => numero <= 999),
+        `${desafio.texto} = ${desafio.resposta}`);
+    }
   }
 });
