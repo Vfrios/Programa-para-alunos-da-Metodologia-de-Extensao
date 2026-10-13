@@ -3,6 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path');
 const { sincronizarCadastros } = require('./database-seed');
 const { migrateActivityMetrics } = require('./database-migrations');
+const { inicializarSugestoesRevisao } = require('./engine/revisao');
 const { horaFim } = require('./agendamento');
 const caminhoBase = path.resolve(__dirname, '../database/matematica.db');
 const caminhoBanco = process.env.DB_FILE === ':memory:' ? ':memory:'
@@ -66,6 +67,7 @@ if (caminhoBanco !== caminhoBase && caminhoBanco !== ':memory:') {
     origem.close();
   }
 }
+inicializarSugestoesRevisao(db);
 const horariosSemFim = db.prepare('SELECT id,hora FROM horarios WHERE fim IS NULL').all();
 const atualizarFimHorario = db.prepare('UPDATE horarios SET fim=? WHERE id=?');
 horariosSemFim.forEach((horario) => atualizarFimHorario.run(horaFim(horario.hora), horario.id));

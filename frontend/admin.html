@@ -334,13 +334,19 @@ $('r-ver').onclick = async () => {
   if (porSala) {
     const nomeAtividade = (atividade) => NOMES[atividade] || atividade;
     const tabela = (cabecalhos, linhas) => `<div style="overflow-x:auto"><table><thead><tr>${cabecalhos.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${linhas.map((linha) => `<tr>${linha.map((celula) => `<td>${esc(celula)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-    const alunosImportados = rows.filter((aluno) => aluno.origem === 'Planilha' || aluno.origem === 'Estimado')
-      .map((aluno) => ({ id: null, nome: aluno.aluno, perguntas: aluno.perguntas }));
+    const alunosImportados = dadosSala.alunosImportados || rows.filter((aluno) => aluno.origem === 'Planilha' || aluno.origem === 'Estimado')
+      .map((aluno) => ({ id: null, nome: aluno.aluno, perguntas: aluno.perguntas, percentual_acerto: aluno.percentual_acerto }));
     const porAluno = [...dadosSala.alunos, ...alunosImportados].map((aluno) => {
       const atividades = dadosSala.dificuldadesPorAluno.filter((item) => aluno.id
         ? item.aluno_id === aluno.id : item.aluno === aluno.nome);
       const comDificuldade = atividades.filter((item) => item.percentual_acerto < 100);
-      if (!comDificuldade.length) return [aluno.nome, `Sem dificuldade identificada (${atividades.length} atividades, todas com 100% de acerto)`, '100%', aluno.perguntas];
+      if (!comDificuldade.length) {
+        const sugestao = dadosSala.sugestoesRevisao?.[aluno.id];
+        const atividade = sugestao
+          ? `Sugestão de prática: ${nomeAtividade(sugestao)}`
+          : `Sem dificuldade identificada (${atividades.length} atividades, todas com 100% de acerto)`;
+        return [aluno.nome, atividade, aluno.percentual_acerto == null ? '—' : `${aluno.percentual_acerto}%`, aluno.perguntas];
+      }
       const menorAcerto = Math.min(...comDificuldade.map((item) => item.percentual_acerto));
       const maisDificeis = comDificuldade.filter((item) => item.percentual_acerto === menorAcerto);
       return [aluno.nome, maisDificeis.map((item) => nomeAtividade(item.atividade)).join(', '),
@@ -353,7 +359,9 @@ $('r-ver').onclick = async () => {
         ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Aproveitamento (%)'],
           dificuldadesDaSala.map((item) => [nomeAtividade(item.atividade), item.perguntas, item.acertos, `${item.percentual_acerto}%`]))
         : '<p>A sala ainda não tem dados de atividade nem uma turma do mesmo ano como referência.</p>'}
-      <h3>Atividade(s) com menor acerto por criança</h3>${tabela(['Criança', 'Atividade(s) para reforçar', 'Aproveitamento (%)', 'Perguntas nessas atividades'], porAluno)}`;
+      <h3>Atividade(s) para reforçar ou praticar</h3>${dadosSala.ano === 2
+        ? '<p>Quando não há dificuldade observada, é exibida uma sugestão variada de prática; ela não altera os resultados registrados.</p>' : ''}
+      ${tabela(['Criança', 'Atividade(s) para reforçar ou praticar', 'Aproveitamento (%)', 'Perguntas nessas atividades'], porAluno)}`;
   }
   if (tipoRelatorio === 'aluno') {
     const perguntas = rows.reduce((soma, r) => soma + r.perguntas, 0);

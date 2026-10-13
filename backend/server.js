@@ -6,6 +6,7 @@ const db = require('./database');
 const { serializeDatabase, restoreDatabase } = require('./engine/database-backup');
 const { configurarAdmin, confere } = require('./engine/admin');
 const { aproveitamentoResposta } = require('./engine/relatorios');
+const { sugerirConteudo2Ano } = require('./engine/revisao');
 const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades, criarSorteadorDeModelos } = require('./engine/gerador');
 const { criarDesafio } = require('./engine/desafios');
 const { calcularPontos, ajustarNivel, mensagemErro, premio, nota } = require('./engine/regras');
@@ -771,6 +772,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
   const resumo = resumoRelatorio(req.params.tipo, id, rows);
   const adicionaisPdf = [];
   if (req.params.tipo === 'sala') {
+    const anoSala = get('SELECT ano FROM salas WHERE id=?', id)?.ano;
     const dificuldadesPdf = all(`SELECT atividade,SUM(perguntas) AS perguntas,SUM(acertos) AS acertos,
         ROUND(100.0 * SUM(aproveitamento) / SUM(perguntas),1) AS percentual_acerto
       FROM (
@@ -794,19 +796,33 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       FROM respostas r JOIN alunos a ON a.id=r.aluno_id WHERE a.sala_id=? GROUP BY a.id,r.atividade`, id, id);
     const porAlunoPdf = new Map();
     alunosPdf.forEach((item) => { if (!porAlunoPdf.has(item.aluno)) porAlunoPdf.set(item.aluno, []); porAlunoPdf.get(item.aluno).push(item); });
+    rows.forEach((item) => { if (!porAlunoPdf.has(item.aluno)) porAlunoPdf.set(item.aluno, []); });
     adicionaisPdf.push('Atividade(s) com menor acerto por aluno:');
     porAlunoPdf.forEach((itens, aluno) => {
       const comDificuldade = itens.filter((item) => item.percentual_acerto < 100);
-      if (!comDificuldade.length) return adicionaisPdf.push(`${aluno}: Sem dificuldade identificada (${itens.length} atividades, todas com 100% de acerto)`);
+      if (!comDificuldade.length) {
+        if (anoSala === 2) {
+          const nomes = { soma: 'Soma', subtracao: 'Subtração', sequencia: 'Sequências numéricas', par_impar: 'Par ou ímpar', antecessor_sucessor: 'Antecessor e sucessor' };
+          return adicionaisPdf.push(`${aluno}: Sugestão de prática: ${nomes[sugerirConteudo2Ano(id, aluno)]}`);
+        }
+        return adicionaisPdf.push(`${aluno}: Sem dificuldade identificada (${itens.length} atividades, todas com 100% de acerto)`);
+      }
       const menor = Math.min(...comDificuldade.map((item) => item.percentual_acerto));
       const nomes = { soma: 'Soma', subtracao: 'Subtração', sequencia: 'Sequências numéricas', formas: 'Formas geométricas', par_impar: 'Par ou ímpar', maior_menor: 'Maior ou menor', antecessor_sucessor: 'Antecessor e sucessor' };
       adicionaisPdf.push(`${aluno}: ${comDificuldade.filter((item) => item.percentual_acerto === menor).map((item) => `${nomes[item.atividade] || item.atividade} (${menor}%)`).join(', ')}`);
     });
   }
   if (req.params.tipo === 'sala' && req.query.detalhado === '1') {
+    const sala = get('SELECT ano FROM salas WHERE id=?', id);
     detalhesSala = {
-      alunos: all(`SELECT a.id,a.nome,COUNT(r.id) AS perguntas FROM alunos a
+      ano: sala?.ano,
+      alunos: all(`SELECT a.id,a.nome,COUNT(r.id) AS perguntas,
+          CASE WHEN COUNT(r.id)=0 THEN NULL ELSE ROUND(100.0 * SUM(${aproveitamentoResposta('r')}) / COUNT(r.id),1) END AS percentual_acerto
+        FROM alunos a
         LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id ORDER BY a.nome`, id),
+      alunosImportados: all(`SELECT ai.id,ai.nome,ai.total_respostas AS perguntas,ai.percentual_acerto
+        FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
+        WHERE i.sala_id=? AND ai.total_respostas>0 ORDER BY ai.nome`, id),
       dificuldadesPorAluno: all(`SELECT a.id AS aluno_id,a.nome AS aluno,r.atividade,COUNT(*) AS perguntas,
           ROUND(100.0 * SUM(${aproveitamentoResposta('r')}) / COUNT(*),1) AS percentual_acerto
         FROM alunos a JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=?
@@ -833,8 +849,13 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
       FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
       JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? AND ia.perguntas>0
       ORDER BY aluno,percentual_acerto,atividade`, id, id);
+    detalhesSala.sugestoesRevisao = sala?.ano === 2
+      ? Object.fromEntries(all(`SELECT sr.aluno_importado_id, sr.atividade FROM sugestoes_revisao sr
+        JOIN alunos_importados ai ON ai.id=sr.aluno_importado_id
+        JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=?`, id)
+        .map((item) => [item.aluno_importado_id, item.atividade]))
+      : {};
     if (!detalhesSala.dificuldadesDaSala.length) {
-      const sala = get('SELECT ano FROM salas WHERE id=?', id);
       detalhesSala.dificuldadesDaSala = all(`SELECT ia.atividade,SUM(ia.perguntas) AS perguntas,SUM(ia.acertos) AS acertos,
           ROUND(100.0 * SUM(ia.acertos) / SUM(ia.perguntas),1) AS percentual_acerto
         FROM alunos_importados_atividades ia JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id

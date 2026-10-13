@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS historico_ranking(id INTEGER PRIMARY KEY AUTOINCREMEN
 CREATE TABLE IF NOT EXISTS importacoes_sala(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, arquivo TEXT NOT NULL, importado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(sala_id, arquivo));
 CREATE TABLE IF NOT EXISTS alunos_importados(id INTEGER PRIMARY KEY AUTOINCREMENT, importacao_id INTEGER NOT NULL, linha_origem INTEGER NOT NULL, nome TEXT NOT NULL, total_respostas INTEGER NOT NULL, pontos_total INTEGER NOT NULL, tempo_medio_s REAL, acertos INTEGER, percentual_acerto REAL, estimado INTEGER NOT NULL DEFAULT 0, UNIQUE(importacao_id, linha_origem));
 CREATE TABLE IF NOT EXISTS alunos_importados_atividades(id INTEGER PRIMARY KEY AUTOINCREMENT, aluno_importado_id INTEGER NOT NULL, atividade TEXT NOT NULL, perguntas INTEGER NOT NULL, acertos INTEGER, percentual_acerto REAL, pontos_total INTEGER, tempo_medio_s REAL, UNIQUE(aluno_importado_id, atividade));
+CREATE TABLE IF NOT EXISTS sugestoes_revisao(aluno_importado_id INTEGER PRIMARY KEY, atividade TEXT NOT NULL CHECK(atividade IN ('soma','subtracao','sequencia','par_impar','antecessor_sucessor')), criada_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS exclusoes_alunos_importados(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, arquivo TEXT NOT NULL, linha_origem INTEGER NOT NULL, nome TEXT, UNIQUE(sala_id, arquivo, linha_origem));
 CREATE INDEX IF NOT EXISTS idx_resp_aluno ON respostas(aluno_id);
 CREATE INDEX IF NOT EXISTS idx_alunos_sessao ON alunos(sessao_id);
