@@ -3,7 +3,7 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path');
 const { sincronizarCadastros } = require('./database-seed');
 const { migrateActivityMetrics } = require('./database-migrations');
-const { inicializarSugestoesRevisao } = require('./engine/revisao');
+const { migrarTabelaSugestoes, inicializarSugestoesRevisao } = require('./engine/revisao');
 const { horaFim } = require('./agendamento');
 const caminhoBase = path.resolve(__dirname, '../database/matematica.db');
 const caminhoBanco = process.env.DB_FILE === ':memory:' ? ':memory:'
@@ -26,6 +26,7 @@ if (caminhoBanco !== ':memory:') {
 const db = new DatabaseSync(caminhoBanco);
 console.log(`Banco SQLite em uso: ${caminhoBanco}`);
 db.exec(fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8'));
+migrarTabelaSugestoes(db);
 db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000;');
 migrateActivityMetrics(db);
 for (const [tabela, coluna, definicao] of [

@@ -341,10 +341,11 @@ $('r-ver').onclick = async () => {
         ? item.aluno_id === aluno.id : item.aluno === aluno.nome);
       const comDificuldade = atividades.filter((item) => item.percentual_acerto < 100);
       if (!comDificuldade.length) {
-        const sugestao = dadosSala.sugestoesRevisao?.[aluno.id];
-        const atividade = sugestao
-          ? `Sugestão de prática: ${nomeAtividade(sugestao)}`
-          : `Sem dificuldade identificada (${atividades.length} atividades, todas com 100% de acerto)`;
+        const atividade = aluno.atividade_estimada
+          ? nomeAtividade(aluno.atividade_estimada)
+          : atividades.length
+            ? `Sem dificuldade identificada (${atividades.length} atividades, todas com 100% de acerto)`
+            : 'Sem dados de desempenho';
         return [aluno.nome, atividade, aluno.percentual_acerto == null ? '—' : `${aluno.percentual_acerto}%`, aluno.perguntas];
       }
       const menorAcerto = Math.min(...comDificuldade.map((item) => item.percentual_acerto));
@@ -354,13 +355,12 @@ $('r-ver').onclick = async () => {
     });
       const dificuldadesDaSala = dadosSala.dificuldadesDaSala.filter((item) => item.percentual_acerto < 100);
       $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + `<h2>Dificuldades da turma</h2>
-      <p>Menor aproveitamento ponderado indica maior dificuldade. Salas sem respostas próprias usam a aproximação agregada das turmas do mesmo ano.</p>
+      <p>Para crianças sem resultados separados por conteúdo, o reforço é estimado pelo aproveitamento individual e pelos conteúdos com menor aproveitamento na mesma série. O percentual e a quantidade de perguntas mostram os resultados gerais da criança.</p>
       <h3>Atividades com menor acerto na sala</h3>${dificuldadesDaSala.length
         ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Aproveitamento (%)'],
           dificuldadesDaSala.map((item) => [nomeAtividade(item.atividade), item.perguntas, item.acertos, `${item.percentual_acerto}%`]))
         : '<p>A sala ainda não tem dados de atividade nem uma turma do mesmo ano como referência.</p>'}
-      <h3>Atividade(s) para reforçar ou praticar</h3>${dadosSala.ano === 2
-        ? '<p>Quando não há dificuldade observada, é exibida uma sugestão variada de prática; ela não altera os resultados registrados.</p>' : ''}
+      <h3>Atividade(s) para reforçar ou praticar</h3>
       ${tabela(['Criança', 'Atividade(s) para reforçar ou praticar', 'Aproveitamento (%)', 'Perguntas nessas atividades'], porAluno)}`;
   }
   if (tipoRelatorio === 'aluno') {
