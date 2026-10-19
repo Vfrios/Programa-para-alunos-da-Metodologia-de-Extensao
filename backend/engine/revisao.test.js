@@ -41,28 +41,39 @@ test('persiste estimativas para alunos sem detalhe em todas as turmas e séries'
   const segundaAlunoId = Number(aluno.run(segundaId, 2, 'Ana', 10, 500, 8, 80).lastInsertRowid);
   const terceiroAlunoId = Number(aluno.run(terceiroAnoId, 2, 'Bia', 10, 500, 10, 100).lastInsertRowid);
   const alunoComDetalhes = Number(aluno.run(terceiroAnoId, 3, 'Caio', 10, 500, 10, 100).lastInsertRowid);
+  migrarTabelaSugestoes(db);
   db.prepare(`INSERT INTO alunos_importados_atividades
     (aluno_importado_id,atividade,perguntas,acertos,percentual_acerto) VALUES(?,?,?,?,?)`)
     .run(alunoComDetalhes, 'soma', 10, 10, 100);
   db.prepare(`INSERT INTO alunos_importados_atividades
     (aluno_importado_id,atividade,perguntas,acertos,percentual_acerto) VALUES(?,?,?,?,?)`)
     .run(alunoComDetalhes, 'multiplicacao', 10, 5, 50);
+  db.prepare(`INSERT INTO alunos_importados_atividades
+    (aluno_importado_id,atividade,perguntas,acertos,percentual_acerto) VALUES(?,?,?,?,?)`)
+    .run(alunoComDetalhes, 'subtracao', 15, 5, 50);
+  db.prepare(`INSERT INTO alunos_importados_atividades
+    (aluno_importado_id,atividade,perguntas,acertos,percentual_acerto) VALUES(?,?,?,?,?)`)
+    .run(alunoComDetalhes, 'sequencia', 10, 4, 50);
+  db.prepare(`INSERT INTO alunos_importados_atividades
+    (aluno_importado_id,atividade,perguntas,acertos,percentual_acerto) VALUES(?,?,?,?,?)`)
+    .run(alunoComDetalhes, 'maior_menor', 10, 4, 50);
   db.prepare('INSERT INTO sugestoes_revisao(aluno_importado_id,atividade) VALUES(?,?)')
     .run(alunoComDetalhes, 'soma');
 
-  assert.equal(inicializarSugestoesRevisao(db), 2);
+  assert.equal(inicializarSugestoesRevisao(db), 3);
   const buscarEstimativa = db.prepare('SELECT atividade FROM sugestoes_revisao WHERE aluno_importado_id=?');
   const estimativaSegundoAno = buscarEstimativa.get(segundaAlunoId);
   const estimativaTerceiroAno = buscarEstimativa.get(terceiroAlunoId);
   assert.ok(ATIVIDADES_POR_ANO[2].includes(estimativaSegundoAno.atividade));
   assert.ok(ATIVIDADES_POR_ANO[3].includes(estimativaTerceiroAno.atividade));
-  assert.ok(['multiplicacao', 'subtracao'].includes(estimativaTerceiroAno.atividade));
-  assert.equal(buscarEstimativa.get(alunoComDetalhes), undefined);
-  assert.equal(db.prepare('SELECT COUNT(*) AS total FROM sugestoes_revisao').get().total, 2);
+  assert.ok(ATIVIDADES_POR_ANO[3].includes(estimativaTerceiroAno.atividade));
+  assert.equal(buscarEstimativa.get(alunoComDetalhes).atividade, 'maior_menor');
+  assert.equal(db.prepare('SELECT COUNT(*) AS total FROM sugestoes_revisao').get().total, 3);
 
   db.prepare('UPDATE alunos_importados SET percentual_acerto=75 WHERE id=?').run(segundaAlunoId);
-  assert.equal(inicializarSugestoesRevisao(db), 2);
+  assert.equal(inicializarSugestoesRevisao(db), 3);
   assert.ok(ATIVIDADES_POR_ANO[2].includes(buscarEstimativa.get(segundaAlunoId).atividade));
+  assert.equal(buscarEstimativa.get(alunoComDetalhes).atividade, 'maior_menor');
   db.close();
 });
 

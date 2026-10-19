@@ -9,7 +9,7 @@ const { aproveitamentoResposta } = require('./engine/relatorios');
 const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades, criarSorteadorDeModelos } = require('./engine/gerador');
 const { criarDesafio } = require('./engine/desafios');
 const { calcularPontos, ajustarNivel, mensagemErro, premio, nota } = require('./engine/regras');
-const { agora, paraMin, horaFim, sobrepoe, DURACAO_MIN } = require('./agendamento');
+const { agora, paraMin, horaFim, sobrepoe, horarioOcorre, horariosSeSobrepoem, diaDaData, DURACAO_MIN } = require('./agendamento');
 
 const TOTAL = Number(process.env.TOTAL_PERGUNTAS || 0);
 const intervaloDesafio = () => 7 + Math.floor(Math.random() * 6);
@@ -108,7 +108,7 @@ function abrirSessao(salaId, fimPrevistoEm) {
   if (!fimPrevistoEm) {
     const t = agora();
     const horarioAtivo = all('SELECT * FROM horarios WHERE sala_id=? AND dia=?', salaId, t.dia)
-      .find((h) => t.min >= paraMin(h.hora) && t.min < paraMin(horaFim(h.hora, h.fim)));
+      .find((h) => horarioOcorre(h, t) && t.min >= paraMin(h.hora) && t.min < paraMin(horaFim(h.hora, h.fim)));
     fimPrevistoEm = horarioAtivo
       ? fimPrevistoDoHorario(horarioAtivo, t.min)
       : fimPrevistoApos(DURACAO_MIN);
@@ -137,7 +137,7 @@ function tick() {
   for (const h of all('SELECT * FROM horarios')) {
     const ini = paraMin(h.hora);
     const fim = paraMin(horaFim(h.hora, h.fim));
-    if (h.dia === t.dia && t.min >= ini && t.min < fim) {
+    if (horarioOcorre(h, t) && t.min >= ini && t.min < fim) {
       const desde = new Date(Date.now() - (t.min - ini + 1) * 60000).toISOString();
       if (!get('SELECT 1 x FROM sessoes WHERE sala_id=? AND aberta_em>=?', h.sala_id, desde) && get('SELECT 1 x FROM salas WHERE id=?', h.sala_id)) {
         abrirSessao(h.sala_id, fimPrevistoDoHorario(h, t.min));
@@ -367,7 +367,7 @@ function conteudosReforco(valor) {
 }
 const salasCompletas = () => all('SELECT * FROM salas ORDER BY nome').map(({ periodo, dificuldade, ...s }) => ({ ...s,
   conteudo_maior_dificuldade: conteudosReforco(s.conteudo_maior_dificuldade),
-  horarios: all('SELECT dia,hora,fim FROM horarios WHERE sala_id=? ORDER BY dia,hora', s.id),
+  horarios: all('SELECT dia,data,hora,fim FROM horarios WHERE sala_id=? ORDER BY dia,hora', s.id),
   atividades: all('SELECT atividade FROM conteudos WHERE sala_id=?', s.id).map((x) => x.atividade).filter((x) => ATIVIDADES.includes(x)) }));
 function salvarSala(id, b) {
   const { nome, ano, professor, conteudo_maior_dificuldade = null, horarios = [], atividades = [] } = b;
@@ -380,18 +380,20 @@ function salvarSala(id, b) {
   const conteudosReforcarSalvos = conteudosReforcar.length ? JSON.stringify(conteudosReforcar) : null;
   const horariosValidos = horarios.filter((h) => h.hora).map((h) => {
     const fim = h.fim || horaFim(h.hora);
+    const data = h.data || null;
     if (!Number.isInteger(+h.dia) || +h.dia < 0 || +h.dia > 6 ||
         !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(h.hora) ||
         !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(fim) ||
-        paraMin(fim) <= paraMin(h.hora)) {
-      throw new Error('Informe um dia válido e horários de início e fim válidos, com o fim depois do início.');
+        paraMin(fim) <= paraMin(h.hora) ||
+        (data !== null && (diaDaData(data) === null || diaDaData(data) !== +h.dia))) {
+      throw new Error('Confira o dia e a data e informe horários válidos, com o fim depois do início.');
     }
-    return { dia: +h.dia, hora: h.hora, fim };
+    return { dia: +h.dia, data, hora: h.hora, fim };
   });
   for (let i = 0; i < horariosValidos.length; i++) {
     for (let j = i + 1; j < horariosValidos.length; j++) {
       const a = horariosValidos[i], b = horariosValidos[j];
-      if (a.dia === b.dia && sobrepoe(a.hora, a.fim, b.hora, b.fim)) {
+      if (horariosSeSobrepoem(a, b)) {
         throw new Error('Os horários da mesma sala não podem se sobrepor.');
       }
     }
@@ -399,7 +401,7 @@ function salvarSala(id, b) {
   if (id) { run('UPDATE salas SET nome=?,ano=?,professor=?,conteudo_maior_dificuldade=? WHERE id=?', nome.trim(), +ano, professor.trim(), conteudosReforcarSalvos, id);
     ['horarios', 'conteudos'].forEach((t) => run(`DELETE FROM ${t} WHERE sala_id=?`, id)); }
   else id = Number(run('INSERT INTO salas(nome,ano,professor,conteudo_maior_dificuldade) VALUES(?,?,?,?)', nome.trim(), +ano, professor.trim(), conteudosReforcarSalvos).lastInsertRowid);
-  horariosValidos.forEach((h) => run('INSERT INTO horarios(sala_id,dia,hora,fim) VALUES(?,?,?,?)', id, h.dia, h.hora, h.fim));
+  horariosValidos.forEach((h) => run('INSERT INTO horarios(sala_id,dia,data,hora,fim) VALUES(?,?,?,?,?)', id, h.dia, h.data, h.hora, h.fim));
   const listaAtividades = (atividades.length ? atividades : (ATIVIDADES_POR_ANO[+ano] || ATIVIDADES)).filter((a) => ATIVIDADES.includes(a));
   listaAtividades.forEach((a) => run('INSERT INTO conteudos(sala_id,atividade) VALUES(?,?)', id, a));
   return id;
@@ -825,7 +827,7 @@ app.get('/api/admin/relatorio/:tipo', auth, ok((req, res) => {
         LEFT JOIN respostas r ON r.aluno_id=a.id WHERE a.sala_id=? GROUP BY a.id ORDER BY a.nome`, id),
       alunosImportados: all(`SELECT ai.id,ai.nome,ai.total_respostas AS perguntas,
           COALESCE(ai.percentual_acerto,100.0*ai.acertos/NULLIF(ai.total_respostas,0)) AS percentual_acerto,
-          sr.atividade AS atividade_estimada
+          sr.atividade AS atividade_sugerida
         FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
         LEFT JOIN sugestoes_revisao sr ON sr.aluno_importado_id=ai.id
         WHERE i.sala_id=? AND ai.total_respostas>0 ORDER BY ai.nome`, id),

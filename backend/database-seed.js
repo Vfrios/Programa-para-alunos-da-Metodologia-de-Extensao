@@ -1,7 +1,11 @@
 function sincronizarCadastros(destino, origem) {
   const normalizarNome = (nome) => String(nome || '').trim().normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
-  const origemTemFim = origem.prepare('PRAGMA table_info(horarios)').all().some((coluna) => coluna.name === 'fim');
+  const origemColunasHorarios = new Set(origem.prepare('PRAGMA table_info(horarios)').all().map((coluna) => coluna.name));
+  const destinoColunasHorarios = new Set(destino.prepare('PRAGMA table_info(horarios)').all().map((coluna) => coluna.name));
+  const origemTemFim = origemColunasHorarios.has('fim');
+  const origemTemData = origemColunasHorarios.has('data');
+  const destinoTemData = destinoColunasHorarios.has('data');
   const origemTemHistorico = origem.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='importacoes_sala'").get()
     && origem.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='alunos_importados'").get();
   const destinoTemHistorico = destino.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='importacoes_sala'").get()
@@ -18,8 +22,15 @@ function sincronizarCadastros(destino, origem) {
   const inserirSala = destino.prepare(`INSERT OR IGNORE INTO salas
     (id,nome,ano,professor,periodo,dificuldade,conteudo_maior_dificuldade) VALUES(?,?,?,?,?,?,?)`);
   const buscarSala = destino.prepare('SELECT nome,ano,professor FROM salas WHERE id=?');
-  const inserirHorario = destino.prepare(`INSERT INTO horarios(sala_id,dia,hora,fim)
-    SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM horarios WHERE sala_id=? AND dia=? AND hora=?)`);
+  const inserirHorario = destino.prepare(destinoTemData
+    ? `INSERT INTO horarios(sala_id,dia,data,hora,fim)
+      SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM horarios WHERE sala_id=? AND dia=? AND hora=?)`
+    : `INSERT INTO horarios(sala_id,dia,hora,fim)
+      SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM horarios WHERE sala_id=? AND dia=? AND hora=?)`);
+  const atualizarDataHorario = origemTemData && destinoTemData
+    ? destino.prepare(`UPDATE horarios SET data=?
+      WHERE sala_id=? AND dia=? AND hora=? AND ? IS NOT NULL AND data IS NOT ?`)
+    : null;
   const inserirConteudo = destino.prepare('INSERT OR IGNORE INTO conteudos(sala_id,atividade) VALUES(?,?)');
   const inserirImportacao = origemTemHistorico && destinoTemHistorico
     ? destino.prepare('INSERT OR IGNORE INTO importacoes_sala(sala_id,arquivo,importado_em) VALUES(?,?,?)') : null;
@@ -70,10 +81,15 @@ function sincronizarCadastros(destino, origem) {
       const existente = buscarSala.get(sala.id);
       if (!existente || existente.nome !== sala.nome || existente.ano !== sala.ano || existente.professor !== sala.professor) continue;
 
-      const horarios = origem.prepare(`SELECT dia,hora,${origemTemFim ? 'fim' : 'NULL AS fim'} FROM horarios WHERE sala_id=?`).all(sala.id);
+      const horarios = origem.prepare(`SELECT dia,${origemTemData ? 'data' : 'NULL AS data'},hora,${origemTemFim ? 'fim' : 'NULL AS fim'} FROM horarios WHERE sala_id=?`).all(sala.id);
       for (const horario of horarios) {
-        horariosImportados += Number(inserirHorario.run(sala.id, horario.dia, horario.hora, horario.fim,
-          sala.id, horario.dia, horario.hora).changes);
+        const resultado = destinoTemData
+          ? inserirHorario.run(sala.id, horario.dia, horario.data, horario.hora, horario.fim,
+            sala.id, horario.dia, horario.hora)
+          : inserirHorario.run(sala.id, horario.dia, horario.hora, horario.fim,
+            sala.id, horario.dia, horario.hora);
+        horariosImportados += Number(resultado.changes);
+        atualizarDataHorario?.run(horario.data, sala.id, horario.dia, horario.hora, horario.data, horario.data);
       }
       for (const conteudo of origem.prepare('SELECT atividade FROM conteudos WHERE sala_id=?').all(sala.id)) {
         conteudosImportados += Number(inserirConteudo.run(sala.id, conteudo.atividade).changes);

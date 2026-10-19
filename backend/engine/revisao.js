@@ -46,9 +46,33 @@ function inicializarSugestoesRevisao(db) {
         JOIN salas s ON s.id=i.sala_id
         WHERE ai.id=sugestoes_revisao.aluno_importado_id AND ai.total_respostas>0
           AND s.ano IN (2,3)
-          AND NOT EXISTS (SELECT 1 FROM alunos_importados_atividades ia
-            WHERE ia.aluno_importado_id=ai.id AND ia.perguntas>0)
       )`);
+    db.exec(`DELETE FROM sugestoes_revisao
+      WHERE EXISTS (
+        SELECT 1 FROM alunos_importados_atividades ia
+        WHERE ia.aluno_importado_id=sugestoes_revisao.aluno_importado_id
+          AND ia.perguntas>0
+      )`);
+    const upsert = db.prepare(`INSERT INTO sugestoes_revisao(aluno_importado_id,atividade)
+      VALUES(?,?) ON CONFLICT(aluno_importado_id) DO UPDATE SET atividade=excluded.atividade`);
+    const comAtividades = db.prepare(`SELECT ia.aluno_importado_id,ia.atividade
+      FROM alunos_importados_atividades ia
+      JOIN alunos_importados ai ON ai.id=ia.aluno_importado_id
+      JOIN importacoes_sala i ON i.id=ai.importacao_id
+      JOIN salas s ON s.id=i.sala_id
+      WHERE ai.total_respostas>0 AND s.ano IN (2,3)
+        AND ia.perguntas>0 AND ia.percentual_acerto IS NOT NULL
+        AND ia.atividade IN (${ATIVIDADES_VALIDAS.map(() => '?').join(',')})
+      ORDER BY ia.aluno_importado_id,ia.percentual_acerto,
+        COALESCE(ia.acertos,999999),ia.perguntas DESC,ia.atividade`).all(...ATIVIDADES_VALIDAS);
+    const atividadesEscolhidas = new Map();
+    comAtividades.forEach((linha) => {
+      if (!atividadesEscolhidas.has(linha.aluno_importado_id)) {
+        atividadesEscolhidas.set(linha.aluno_importado_id, linha.atividade);
+      }
+    });
+    atividadesEscolhidas.forEach((atividade, alunoId) => upsert.run(alunoId, atividade));
+
     const alunos = db.prepare(`SELECT ai.id,ai.nome,ai.total_respostas,ai.acertos,ai.percentual_acerto,
         s.id AS sala_id,s.ano FROM alunos_importados ai
       JOIN importacoes_sala i ON i.id=ai.importacao_id
@@ -57,8 +81,6 @@ function inicializarSugestoesRevisao(db) {
         AND NOT EXISTS (SELECT 1 FROM alunos_importados_atividades ia
           WHERE ia.aluno_importado_id=ai.id AND ia.perguntas>0)
       ORDER BY ai.id`).all();
-    const upsert = db.prepare(`INSERT INTO sugestoes_revisao(aluno_importado_id,atividade)
-      VALUES(?,?) ON CONFLICT(aluno_importado_id) DO UPDATE SET atividade=excluded.atividade`);
     const atividadesPorAno = new Map();
     for (const ano of new Set(alunos.map((aluno) => aluno.ano))) {
       const conteudos = ATIVIDADES_POR_ANO[ano] || [];
@@ -95,7 +117,7 @@ function inicializarSugestoesRevisao(db) {
       if (atividade) upsert.run(aluno.id, atividade);
     });
     db.exec('COMMIT');
-    return alunos.length;
+    return alunos.length + atividadesEscolhidas.size;
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;

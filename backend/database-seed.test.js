@@ -24,12 +24,12 @@ test('guarda relatórios importados separados das respostas da aplicação', () 
   db.close();
 });
 
-function criarBanco(comFim = false) {
+function criarBanco(comFim = false, comData = false) {
   const db = new DatabaseSync(':memory:');
   db.exec(`
     CREATE TABLE salas(id INTEGER PRIMARY KEY, nome TEXT NOT NULL, ano INTEGER NOT NULL, professor TEXT NOT NULL,
       periodo TEXT NOT NULL DEFAULT 'Manhã', dificuldade TEXT NOT NULL DEFAULT 'Básico', conteudo_maior_dificuldade TEXT);
-    CREATE TABLE horarios(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, dia INTEGER NOT NULL, hora TEXT NOT NULL${comFim ? ', fim TEXT' : ''});
+    CREATE TABLE horarios(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, dia INTEGER NOT NULL${comData ? ', data TEXT' : ''}, hora TEXT NOT NULL${comFim ? ', fim TEXT' : ''});
     CREATE TABLE conteudos(sala_id INTEGER NOT NULL, atividade TEXT NOT NULL, PRIMARY KEY(sala_id,atividade));
     CREATE TABLE importacoes_sala(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, arquivo TEXT NOT NULL, importado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(sala_id,arquivo));
     CREATE TABLE alunos_importados(id INTEGER PRIMARY KEY AUTOINCREMENT, importacao_id INTEGER NOT NULL, linha_origem INTEGER NOT NULL,
@@ -39,6 +39,43 @@ function criarBanco(comFim = false) {
   `);
   return db;
 }
+
+test('inicializa a coluna de data em bancos de salas existentes', () => {
+  const resultado = execFileSync(process.execPath, ['-e',
+    "const db=require('./database'); const existe=db.prepare('PRAGMA table_info(horarios)').all().some((coluna)=>coluna.name==='data'); process.stdout.write(String(existe)); db.close();"
+  ], { cwd: __dirname, env: { ...process.env, DB_FILE: ':memory:', NODE_ENV: 'test' }, encoding: 'utf8' });
+  assert.ok(resultado.trim().endsWith('true'));
+});
+
+test('recusa criar outro arquivo de banco fora do ambiente de testes', () => {
+  const pastaTemporaria = fs.mkdtempSync(path.join(os.tmpdir(), 'matematica-db-recusado-'));
+  const caminhoBanco = path.join(pastaTemporaria, 'outro.db');
+  try {
+    assert.throws(() => execFileSync(process.execPath, ['-e', "require('./database')"], {
+      cwd: __dirname,
+      env: { ...process.env, DB_FILE: caminhoBanco, NODE_ENV: 'development' },
+      stdio: 'pipe',
+    }), /O sistema usa somente o banco configurado/);
+    assert.equal(fs.existsSync(caminhoBanco), false);
+  } finally {
+    fs.rmSync(pastaTemporaria, { recursive: true, force: true });
+  }
+});
+
+test('usa journal tradicional sem deixar arquivos WAL ou SHM', () => {
+  const pastaTemporaria = fs.mkdtempSync(path.join(os.tmpdir(), 'matematica-db-journal-'));
+  const caminhoBanco = path.join(pastaTemporaria, 'matematica.db');
+  try {
+    const resultado = execFileSync(process.execPath, ['-e',
+      "const db=require('./database'); const modo=db.prepare('PRAGMA journal_mode').get().journal_mode; db.close(); process.stdout.write(modo);"
+    ], { cwd: __dirname, env: { ...process.env, DB_FILE: caminhoBanco, NODE_ENV: 'test' }, encoding: 'utf8' });
+    assert.ok(resultado.trim().endsWith('delete'));
+    assert.equal(fs.existsSync(`${caminhoBanco}-wal`), false);
+    assert.equal(fs.existsSync(`${caminhoBanco}-shm`), false);
+  } finally {
+    fs.rmSync(pastaTemporaria, { recursive: true, force: true });
+  }
+});
 
 test('importa salas, horários e conteúdos do banco incluído sem duplicar em reinicializações', () => {
   const origem = criarBanco(), destino = criarBanco(true);
@@ -55,6 +92,26 @@ test('importa salas, horários e conteúdos do banco incluído sem duplicar em r
   assert.equal(destino.prepare('SELECT COUNT(*) n FROM salas').get().n, 1);
   assert.equal(destino.prepare('SELECT COUNT(*) n FROM horarios').get().n, 1);
   assert.equal(destino.prepare('SELECT COUNT(*) n FROM conteudos').get().n, 1);
+  origem.close(); destino.close();
+});
+
+test('sincroniza datas específicas dos horários sem substituir datas remotas por valores vazios', () => {
+  const origem = criarBanco(true, true), destino = criarBanco(true, true);
+  origem.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(1, 'Turma A', 2, 'Professora');
+  destino.prepare('INSERT INTO salas(id,nome,ano,professor) VALUES(?,?,?,?)').run(1, 'Turma A', 2, 'Professora');
+  origem.prepare('INSERT INTO horarios(sala_id,dia,data,hora,fim) VALUES(?,?,?,?,?)')
+    .run(1, 1, '2026-10-05', '13:30', '14:25');
+  origem.prepare('INSERT INTO horarios(sala_id,dia,data,hora,fim) VALUES(?,?,?,?,?)')
+    .run(1, 2, null, '14:40', '15:35');
+  destino.prepare('INSERT INTO horarios(sala_id,dia,data,hora,fim) VALUES(?,?,?,?,?)')
+    .run(1, 1, null, '13:30', '14:25');
+  destino.prepare('INSERT INTO horarios(sala_id,dia,data,hora,fim) VALUES(?,?,?,?,?)')
+    .run(1, 2, '2026-10-06', '14:40', '15:35');
+
+  sincronizarCadastros(destino, origem);
+
+  assert.equal(destino.prepare('SELECT data FROM horarios WHERE dia=1').get().data, '2026-10-05');
+  assert.equal(destino.prepare('SELECT data FROM horarios WHERE dia=2').get().data, '2026-10-06');
   origem.close(); destino.close();
 });
 
@@ -239,7 +296,7 @@ test('inicializar com DB_FILE importa os cadastros do banco que acompanha o depl
   try {
     const inicializarBanco = () => execFileSync(process.execPath, ['-e', "require('./database').close()"], {
       cwd: __dirname,
-      env: { ...process.env, DB_FILE: caminhoBanco },
+      env: { ...process.env, DB_FILE: caminhoBanco, NODE_ENV: 'test' },
       stdio: 'pipe',
     });
     inicializarBanco();
@@ -259,6 +316,7 @@ test('inicializar com DB_FILE importa os cadastros do banco que acompanha o depl
     assert.deepEqual(Object.values(totaisRender), [66, 5136, 5013, 539490]);
     assert.equal(banco.prepare('SELECT COUNT(*) n FROM exclusoes_alunos_importados').get().n, 0);
     assert.ok(banco.prepare('PRAGMA table_info(horarios)').all().some((coluna) => coluna.name === 'fim'));
+    assert.ok(banco.prepare('PRAGMA table_info(horarios)').all().some((coluna) => coluna.name === 'data'));
     assert.ok(banco.prepare('PRAGMA table_info(admins)').all().some((coluna) => coluna.name === 'papel'));
     assert.ok(banco.prepare('PRAGMA table_info(historico_ranking)').all().some((coluna) => coluna.name === 'aluno_id'));
     assert.ok(banco.prepare('PRAGMA table_info(sessoes)').all().some((coluna) => coluna.name === 'fim_previsto_em'));

@@ -6,8 +6,16 @@ const { migrateActivityMetrics } = require('./database-migrations');
 const { migrarTabelaSugestoes, inicializarSugestoesRevisao } = require('./engine/revisao');
 const { horaFim } = require('./agendamento');
 const caminhoBase = path.resolve(__dirname, '../database/matematica.db');
-const caminhoBanco = process.env.DB_FILE === ':memory:' ? ':memory:'
-  : process.env.DB_FILE ? path.resolve(process.env.DB_FILE) : caminhoBase;
+const caminhoConfigurado = process.env.DB_FILE;
+if (caminhoConfigurado === ':memory:' && process.env.NODE_ENV !== 'test') {
+  throw new Error('DB_FILE=:memory: só pode ser usado nos testes.');
+}
+if (caminhoConfigurado && caminhoConfigurado !== ':memory:' &&
+    path.resolve(caminhoConfigurado) !== caminhoBase && process.env.NODE_ENV !== 'test') {
+  throw new Error(`O sistema usa somente o banco configurado em ${caminhoBase}. DB_FILE não pode apontar para outro arquivo.`);
+}
+const caminhoBanco = caminhoConfigurado === ':memory:' ? ':memory:'
+  : caminhoConfigurado ? path.resolve(caminhoConfigurado) : caminhoBase;
 if (caminhoBanco !== ':memory:') {
   const diretorioBanco = path.dirname(caminhoBanco);
   if (process.env.NODE_ENV === 'production' && process.env.DB_FILE) {
@@ -25,14 +33,15 @@ if (caminhoBanco !== ':memory:') {
 }
 const db = new DatabaseSync(caminhoBanco);
 console.log(`Banco SQLite em uso: ${caminhoBanco}`);
+db.exec('PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;');
 db.exec(fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8'));
 migrarTabelaSugestoes(db);
-db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000;');
 migrateActivityMetrics(db);
 for (const [tabela, coluna, definicao] of [
   ['admins', 'papel', `TEXT NOT NULL DEFAULT 'admin' CHECK (papel IN ('admin','primario'))`],
   ['historico_ranking', 'aluno_id', 'INTEGER'],
   ['horarios', 'fim', 'TEXT'],
+  ['horarios', 'data', 'TEXT'],
   ['sessoes', 'fim_previsto_em', 'TEXT'],
   ['alunos_importados', 'acertos', 'INTEGER'],
   ['alunos_importados', 'percentual_acerto', 'REAL'],

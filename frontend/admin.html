@@ -58,7 +58,8 @@
       <div class="linha"><input id="f-nome" placeholder="Nome (ex: 2º A)"> <select id="f-ano" aria-label="Ano"><option value="2">2º ano</option><option value="3">3º ano</option></select>
         <input id="f-prof" placeholder="Professor responsável"></div>
       <fieldset class="selecao-conteudos" id="f-conteudo-dificil"><legend>Conteúdos para reforçar</legend></fieldset>
-      <div><b>Horários</b> <button id="add-h" type="button">+ horário</button><div id="f-horarios"></div></div>
+      <div><b>Horários</b> <small>Data opcional: preenchida, a sessão abre somente nesse dia; vazia, repete semanalmente.</small>
+        <button id="add-h" type="button">+ horário</button><div id="f-horarios"></div></div>
       <div style="margin-top:8px"><b>Conteúdo</b><div class="linha" id="f-ativ"></div></div>
       <div class="linha"><button id="salvar">Salvar sala</button> <button id="cancelar" type="button">Limpar</button> <span id="f-erro" style="color:#c0392b"></span></div>
     </div>
@@ -202,11 +203,14 @@ function calcularFimPadrao(hora) {
   const total = (h * 60 + m + 55) % 1440;
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
-function linhaHorario(dia = 1, hora = '13:30', fim = '') {
+function linhaHorario(dia = 1, hora = '13:30', fim = '', data = '') {
   const d = document.createElement('div'); d.className = 'linha';
   let fimInformado = Boolean(fim);
-  d.innerHTML = `<select aria-label="Dia da semana">${DIAS.map((n, i) => `<option value="${i}" ${i === dia ? 'selected' : ''}>${n}</option>`).join('')}</select><label>Início <input type="text" value="${hora}" placeholder="HH:mm" aria-label="Horário de início no formato 24 horas"></label><label>Fim <input type="text" value="${fim || calcularFimPadrao(hora)}" placeholder="HH:mm" aria-label="Horário de fim no formato 24 horas"></label><button type="button" aria-label="Remover horário">✕</button>`;
-  const [inicioInput, fimInput] = d.querySelectorAll('input');
+  d.innerHTML = `<select aria-label="Dia da semana">${DIAS.map((n, i) => `<option value="${i}" ${i === dia ? 'selected' : ''}>${n}</option>`).join('')}</select><label>Data <input type="date" value="${esc(data)}" aria-label="Data única da aula"></label><label>Início <input type="text" value="${hora}" placeholder="HH:mm" aria-label="Horário de início no formato 24 horas"></label><label>Fim <input type="text" value="${fim || calcularFimPadrao(hora)}" placeholder="HH:mm" aria-label="Horário de fim no formato 24 horas"></label><button type="button" aria-label="Remover horário">✕</button>`;
+  const [dataInput, inicioInput, fimInput] = d.querySelectorAll('input');
+  dataInput.addEventListener('change', () => {
+    if (dataInput.value) d.querySelector('select').value = String(new Date(`${dataInput.value}T00:00:00.000Z`).getUTCDay());
+  });
   inicioInput.addEventListener('input', (e) => {
     formatarHoraInput(e.target);
     if (!fimInformado) fimInput.value = calcularFimPadrao(e.target.value);
@@ -225,12 +229,13 @@ $('cancelar').onclick = limpar;
 $('f-ano').onchange = () => { const ano = +$('f-ano').value; document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[ano]?.includes(c.value) || false)); };
 $('salvar').onclick = async () => {
   const horarios = [...$('f-horarios').children].map((r) => {
-    const [hora, fim] = r.querySelectorAll('input');
-    return { dia: +r.querySelector('select').value, hora: hora.value, fim: fim.value };
+    const [data, hora, fim] = r.querySelectorAll('input');
+    return { dia: +r.querySelector('select').value, data: data.value, hora: hora.value, fim: fim.value };
   });
-  if (horarios.some(({ hora, fim }) => !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(hora) ||
+  if (horarios.some(({ dia, data, hora, fim }) => (data && new Date(`${data}T00:00:00.000Z`).getUTCDay() !== dia) ||
+      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(hora) ||
       !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(fim) || fim <= hora)) {
-    $('f-erro').textContent = 'Informe início e fim no formato 24 horas HH:mm, com o fim depois do início.'; return;
+    $('f-erro').textContent = 'Confira se o dia corresponde à data e informe início e fim no formato HH:mm, com o fim depois do início.'; return;
   }
   const body = { nome: $('f-nome').value, ano: +$('f-ano').value, professor: $('f-prof').value, conteudo_maior_dificuldade: conteudosParaReforcarSelecionados(),
     horarios,
@@ -254,7 +259,7 @@ function renderizarSalas() {
       (!ano || String(s.ano) === ano);
   });
   $('lista-salas').innerHTML = filtradas.map((s) => `<div class="item"><label><input type="checkbox" data-selecionar-sala="${s.id}" aria-label="Selecionar sala ${esc(s.nome)}"> Selecionar</label> <b>${esc(s.nome)}</b> — ${s.ano}º ano — ${esc(s.professor)}<br>
-    <small>Conteúdos para reforçar: ${s.conteudo_maior_dificuldade.length ? s.conteudo_maior_dificuldade.map((a) => NOMES[a] || a).join(', ') : 'nenhum'}<br>${s.horarios.map((h) => DIAS[h.dia] + ' ' + h.hora + '–' + h.fim).join(', ') || 'sem horário'} · ${s.atividades.map((a) => NOMES[a]).join(', ') || 'sem conteúdo'}</small>
+    <small>Conteúdos para reforçar: ${s.conteudo_maior_dificuldade.length ? s.conteudo_maior_dificuldade.map((a) => NOMES[a] || a).join(', ') : 'nenhum'}<br>${s.horarios.map((h) => `${DIAS[h.dia]}${h.data ? ` ${h.data.split('-').reverse().join('/')}` : ''} ${h.hora}–${h.fim}`).join(', ') || 'sem horário'} · ${s.atividades.map((a) => NOMES[a]).join(', ') || 'sem conteúdo'}</small>
     <div class="linha"><button data-ed="${s.id}">Editar</button><button data-del="${s.id}">Excluir</button></div></div>`).join('') || '<p>Nenhuma sala criada ainda.</p>';
   atualizarSelecaoSalas();
 }
@@ -295,7 +300,7 @@ $('lista-salas').onclick = async (e) => {
     $('f-id').value = s.id; $('f-nome').value = s.nome; $('f-ano').value = s.ano; $('f-prof').value = s.professor;
     document.querySelectorAll('#f-conteudo-dificil input').forEach((c) => (c.checked = s.conteudo_maior_dificuldade.includes(c.value)));
     $('form-titulo').textContent = 'Editar sala';
-    s.horarios.forEach((h) => linhaHorario(h.dia, h.hora, h.fim)); document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = s.atividades.includes(c.value))); scrollTo(0, 0); }
+    s.horarios.forEach((h) => linhaHorario(h.dia, h.hora, h.fim, h.data)); document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = s.atividades.includes(c.value))); scrollTo(0, 0); }
 };
 
 // ---------- Relatórios ----------
@@ -334,15 +339,17 @@ $('r-ver').onclick = async () => {
   if (porSala) {
     const nomeAtividade = (atividade) => NOMES[atividade] || atividade;
     const tabela = (cabecalhos, linhas) => `<div style="overflow-x:auto"><table><thead><tr>${cabecalhos.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${linhas.map((linha) => `<tr>${linha.map((celula) => `<td>${esc(celula)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-    const alunosImportados = dadosSala.alunosImportados || rows.filter((aluno) => aluno.origem === 'Planilha' || aluno.origem === 'Estimado')
-      .map((aluno) => ({ id: null, nome: aluno.aluno, perguntas: aluno.perguntas, percentual_acerto: aluno.percentual_acerto }));
+    const alunosImportados = (dadosSala.alunosImportados || rows.filter((aluno) => aluno.origem === 'Planilha' || aluno.origem === 'Estimado')
+      .map((aluno) => ({ id: null, nome: aluno.aluno, perguntas: aluno.perguntas, percentual_acerto: aluno.percentual_acerto })))
+      .map((aluno) => ({ ...aluno, origemImportada: true }));
     const porAluno = [...dadosSala.alunos, ...alunosImportados].map((aluno) => {
-      const atividades = dadosSala.dificuldadesPorAluno.filter((item) => aluno.id
-        ? item.aluno_id === aluno.id : item.aluno === aluno.nome);
+      const atividades = dadosSala.dificuldadesPorAluno.filter((item) => !aluno.origemImportada && (aluno.id
+        ? item.aluno_id === aluno.id : item.aluno === aluno.nome));
       const comDificuldade = atividades.filter((item) => item.percentual_acerto < 100);
       if (!comDificuldade.length) {
-        const atividade = aluno.atividade_estimada
-          ? nomeAtividade(aluno.atividade_estimada)
+        const atividadeSugerida = aluno.atividade_sugerida || aluno.atividade_estimada;
+        const atividade = atividadeSugerida
+          ? nomeAtividade(atividadeSugerida)
           : atividades.length
             ? `Sem dificuldade identificada (${atividades.length} atividades, todas com 100% de acerto)`
             : 'Sem dados de desempenho';
