@@ -13,7 +13,7 @@ function dataComDuracao(sessao) {
 function detalharAtividadeImportada(db, sessao) {
   if (!sessao.importacao_id) return null;
   if (!db.prepare('SELECT 1 FROM importacoes_sala WHERE id=?').get(sessao.importacao_id)) {
-    throw new Error(`Importação histórica ${sessao.importacao_id} não encontrada.`);
+    throw new Error(`Relatório vinculado ${sessao.importacao_id} não encontrado.`);
   }
 
   const alunosOriginais = db.prepare(`SELECT id, nome, total_respostas, pontos_total, tempo_medio_s,

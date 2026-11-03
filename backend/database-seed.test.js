@@ -6,7 +6,28 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { sincronizarCadastros } = require('./database-seed');
-const { migrateActivityMetrics } = require('./database-migrations');
+const {
+  migrateActivityMetrics,
+  normalizarNomeProfessor,
+  removerMarcadoresDeProfessor,
+} = require('./database-migrations');
+
+test('remove marcadores de professor sem alterar nomes reais', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(`CREATE TABLE salas(id INTEGER PRIMARY KEY, professor TEXT NOT NULL);
+    INSERT INTO salas VALUES(1,' A definir ');
+    INSERT INTO salas VALUES(2,'Importação histórica (responsável não informado)');
+    INSERT INTO salas VALUES(3,'Professora Ana');`);
+
+  assert.equal(normalizarNomeProfessor(' A DEFINIR '), '');
+  assert.equal(normalizarNomeProfessor('Importacao historica (responsavel nao informado)'), '');
+  assert.equal(normalizarNomeProfessor('Professora Ana'), 'Professora Ana');
+  assert.equal(removerMarcadoresDeProfessor(db), 2);
+  assert.deepEqual(db.prepare('SELECT professor FROM salas ORDER BY id').all()
+    .map(({ professor }) => professor), ['', '', 'Professora Ana']);
+  assert.equal(removerMarcadoresDeProfessor(db), 0);
+  db.close();
+});
 
 test('guarda relatórios importados separados das respostas da aplicação', () => {
   const db = new DatabaseSync(':memory:');
@@ -307,6 +328,8 @@ test('inicializar com DB_FILE importa os cadastros do banco que acompanha o depl
       assert.equal(banco.prepare(`SELECT COUNT(*) n FROM ${tabela}`).get().n,
         base.prepare(`SELECT COUNT(*) n FROM ${tabela}`).get().n);
     }
+    assert.equal(banco.prepare('SELECT professor FROM salas').all()
+      .filter(({ professor }) => professor.trim() && !normalizarNomeProfessor(professor)).length, 0);
     const totaisImportados = `SELECT COUNT(*) AS students,SUM(ai.total_respostas) AS questions,
       SUM(ai.acertos) AS correct,SUM(ai.pontos_total) AS points FROM alunos_importados ai
       JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id BETWEEN 9 AND 13`;

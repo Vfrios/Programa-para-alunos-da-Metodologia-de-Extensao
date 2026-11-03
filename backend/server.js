@@ -6,6 +6,8 @@ const db = require('./database');
 const { configurarAdmin, confere, hash } = require('./engine/admin');
 const { aproveitamentoResposta } = require('./engine/relatorios');
 const { detalharAtividadeImportada } = require('./imported-activity-report');
+const { excluirAtividade } = require('./activity-deletion');
+const { normalizarNomeProfessor } = require('./database-migrations');
 const { ATIVIDADES, ATIVIDADES_POR_ANO, gerarPergunta, criarSorteadorDeAtividades, criarSorteadorDeModelos, limparSorteadoresNumericos } = require('./engine/gerador');
 const { criarDesafio } = require('./engine/desafios');
 const { calcularPontos, ajustarNivel, mensagemErro, premio, nota } = require('./engine/regras');
@@ -68,6 +70,9 @@ const rankingGeral = () => all(`SELECT id, nome, sala, pontos FROM (
     SELECT NULL, ai.nome, sa.nome, ai.pontos_total
     FROM alunos_importados ai JOIN importacoes_sala i ON i.id=ai.importacao_id
     JOIN salas sa ON sa.id=i.sala_id
+    WHERE NOT EXISTS (SELECT 1 FROM exclusoes_alunos_importados e
+      WHERE e.sala_id=i.sala_id AND e.arquivo=i.arquivo
+        AND e.linha_origem=ai.linha_origem AND e.nome IS NULL)
   ) ORDER BY pontos DESC, nome`);
 const terminaram = (sid) => get('SELECT COUNT(DISTINCT aluno_id) n FROM respostas WHERE sessao_id=?', sid).n;
 const primeira = () => abertas().sort((x, y) => (x.status === 'aguardando' ? -1 : 1) - (y.status === 'aguardando' ? -1 : 1))[0];
@@ -116,7 +121,7 @@ function fimPrevistoDoHorario(hora, minutoAtual = agora().min) {
   return fimPrevistoApos(minutosRestantes, true);
 }
 function rotuloPadraoAtividade(salaId, data = new Date()) {
-  const numero = get('SELECT COUNT(*) AS n FROM sessoes WHERE sala_id=?', salaId).n + 1;
+  const numero = get("SELECT COUNT(*) AS n FROM sessoes WHERE sala_id=? AND status NOT IN ('cancelada','excluida')", salaId).n + 1;
   const dataFmt = `${String(data.getDate()).padStart(2, '0')}/${String(data.getMonth() + 1).padStart(2, '0')}/${data.getFullYear()}`;
   return `Atividade ${numero} - ${dataFmt}`;
 }
@@ -184,6 +189,23 @@ function encerrarSessao(id) {
   io.to('s' + id).emit('encerrada', rk);
   online.delete(id); io.emit('estado'); emitirPainel();
 }
+function cancelarSessao(id) {
+  const sessao = get('SELECT id FROM sessoes WHERE id=? AND status=?', id, 'aguardando');
+  if (!sessao) throw new Error('Só é possível cancelar uma atividade que ainda aguarda início.');
+  const canceladaEm = new Date().toISOString();
+  run("UPDATE sessoes SET status='cancelada', encerrada_em=? WHERE id=? AND status='aguardando'", canceladaEm, id);
+  for (const aluno of all('SELECT id FROM alunos WHERE sessao_id=?', id)) {
+    pendentes.delete(aluno.id);
+    desafiosPendentes.delete(aluno.id);
+    proximoDesafioPorAluno.delete(aluno.id);
+    sorteadoresModelo.delete(aluno.id);
+    limparSorteadoresNumericos(aluno.id);
+  }
+  io.to('s' + id).emit('cancelada');
+  online.delete(id);
+  io.emit('estado');
+  emitirPainel();
+}
 
 // ---------- Agendamento automático ----------
 function tick() {
@@ -218,7 +240,11 @@ app.get('/api/estado', (req, res) => {
   }
   const s = primeira();
   const nomesSugeridos = s ? all(`SELECT DISTINCT ai.nome FROM alunos_importados ai
-    JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=? ORDER BY ai.nome`, s.sala_id).map((x) => x.nome) : [];
+    JOIN importacoes_sala i ON i.id=ai.importacao_id WHERE i.sala_id=?
+      AND NOT EXISTS (SELECT 1 FROM exclusoes_alunos_importados e
+        WHERE e.sala_id=i.sala_id AND e.arquivo=i.arquivo
+          AND e.linha_origem=ai.linha_origem AND e.nome IS NULL)
+    ORDER BY ai.nome`, s.sala_id).map((x) => x.nome) : [];
   res.json(s ? { sessao: s.id, status: s.status, nomesSugeridos } : { sessao: null });
 });
 
@@ -460,13 +486,14 @@ function conteudosReforco(valor) {
   return ATIVIDADES.includes(valor) ? [valor] : [];
 }
 const salasCompletas = () => all('SELECT * FROM salas ORDER BY nome').map(({ periodo, dificuldade, ...s }) => ({ ...s,
-  _contadorAtividades: get('SELECT COUNT(*) AS n FROM sessoes WHERE sala_id=?', s.id).n,
+  _contadorAtividades: get("SELECT COUNT(*) AS n FROM sessoes WHERE sala_id=? AND status NOT IN ('cancelada','excluida')", s.id).n,
   conteudo_maior_dificuldade: conteudosReforco(s.conteudo_maior_dificuldade),
   horarios: all('SELECT dia,data,hora,fim,inicio_espera_min FROM horarios WHERE sala_id=? ORDER BY dia,hora', s.id),
   atividades: all('SELECT atividade FROM conteudos WHERE sala_id=?', s.id).map((x) => x.atividade).filter((x) => ATIVIDADES.includes(x)) }));
 function salvarSala(id, b) {
   const { nome, ano, professor, conteudo_maior_dificuldade = null, horarios = [], atividades = [] } = b;
-  if (!String(nome || '').trim() || ![2, 3].includes(+ano) || !String(professor || '').trim()) throw new Error('Preencha nome, ano e professor.');
+  const nomeProfessor = normalizarNomeProfessor(professor);
+  if (!String(nome || '').trim() || ![2, 3].includes(+ano)) throw new Error('Preencha nome e ano.');
   const conteudosReforcar = Array.isArray(conteudo_maior_dificuldade)
     ? [...new Set(conteudo_maior_dificuldade)] : conteudo_maior_dificuldade ? [conteudo_maior_dificuldade] : [];
   if (conteudosReforcar.some((atividade) => !ATIVIDADES.includes(atividade))) {
@@ -495,9 +522,9 @@ function salvarSala(id, b) {
       }
     }
   }
-  if (id) { run('UPDATE salas SET nome=?,ano=?,professor=?,conteudo_maior_dificuldade=? WHERE id=?', nome.trim(), +ano, professor.trim(), conteudosReforcarSalvos, id);
+  if (id) { run('UPDATE salas SET nome=?,ano=?,professor=?,conteudo_maior_dificuldade=? WHERE id=?', nome.trim(), +ano, nomeProfessor, conteudosReforcarSalvos, id);
     ['horarios', 'conteudos'].forEach((t) => run(`DELETE FROM ${t} WHERE sala_id=?`, id)); }
-  else id = Number(run('INSERT INTO salas(nome,ano,professor,conteudo_maior_dificuldade) VALUES(?,?,?,?)', nome.trim(), +ano, professor.trim(), conteudosReforcarSalvos).lastInsertRowid);
+  else id = Number(run('INSERT INTO salas(nome,ano,professor,conteudo_maior_dificuldade) VALUES(?,?,?,?)', nome.trim(), +ano, nomeProfessor, conteudosReforcarSalvos).lastInsertRowid);
   horariosValidos.forEach((h) => run('INSERT INTO horarios(sala_id,dia,data,hora,fim,inicio_espera_min) VALUES(?,?,?,?,?,?)',
     id, h.dia, h.data, h.hora, h.fim, h.inicio_espera_min));
   const listaAtividades = (atividades.length ? atividades : (ATIVIDADES_POR_ANO[+ano] || ATIVIDADES)).filter((a) => ATIVIDADES.includes(a));
@@ -533,7 +560,28 @@ app.post('/api/admin/sessoes/:id/iniciar', auth, ok((req, res) => {
   const id = +req.params.id;
   res.json({ ok: true, iniciada: iniciarSessao(id) });
 }));
+app.post('/api/admin/sessoes/:id/cancelar', auth, ok((req, res) => {
+  cancelarSessao(+req.params.id);
+  res.json({ ok: true, cancelada: true });
+}));
 app.post('/api/admin/sessoes/:id/encerrar', auth, ok((req, res) => { encerrarSessao(+req.params.id); res.json({ ok: true }); }));
+app.delete('/api/admin/sessoes/:id', authAdmin, ok((req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('Atividade inválida.');
+  const alunoIds = excluirAtividade(db, id);
+  for (const alunoId of alunoIds) {
+    pendentes.delete(alunoId);
+    desafiosPendentes.delete(alunoId);
+    proximoDesafioPorAluno.delete(alunoId);
+    sorteadoresModelo.delete(alunoId);
+    comboPorAluno.delete(alunoId);
+    limparSorteadoresNumericos(alunoId);
+  }
+  online.delete(id);
+  io.emit('estado');
+  emitirPainel();
+  res.json({ ok: true });
+}));
 
 // Histórico de atividades (sessões encerradas) por sala
 app.get('/api/admin/sessoes-encerradas', auth, ok((req, res) => {
@@ -573,7 +621,7 @@ const NOMES_ATIVIDADES_PT = {
 function detalharSessao(sessaoId) {
   const sessao = get(`SELECT se.*, sa.nome AS sala, sa.ano FROM sessoes se
     JOIN salas sa ON sa.id=se.sala_id WHERE se.id=?`, sessaoId);
-  if (!sessao) return null;
+  if (!sessao || sessao.status === 'excluida') return null;
   const relatorioImportado = detalharAtividadeImportada(db, sessao);
   if (relatorioImportado) return relatorioImportado;
   const alunos = all(`SELECT a.id, a.nome,

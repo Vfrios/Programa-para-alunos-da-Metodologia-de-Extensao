@@ -667,6 +667,10 @@ socket.on('encerrada', (d) => {
   dados = d; pintar();
   if (aluno) { encerrada = true; localStorage.removeItem('aluno'); fim(); }
 });
+socket.on('cancelada', () => {
+  localStorage.removeItem('aluno');
+  aluno = null;
+});
 socket.on('estado', () => { if (!aluno) init(); });
 init();
 </script>

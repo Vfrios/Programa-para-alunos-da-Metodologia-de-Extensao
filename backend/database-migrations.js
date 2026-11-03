@@ -90,6 +90,25 @@ function migrateReportIndexes(db) {
   }
 }
 
+const MARCADORES_PROFESSOR_AUSENTE = new Set([
+  'a definir',
+  'importacao historica (responsavel nao informado)',
+]);
+function normalizarNomeProfessor(valor) {
+  const nome = String(valor || '').trim();
+  const marcador = nome.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+  return MARCADORES_PROFESSOR_AUSENTE.has(marcador) ? '' : nome;
+}
+
+function removerMarcadoresDeProfessor(db) {
+  const salas = db.prepare('SELECT id,professor FROM salas').all();
+  const limpar = db.prepare("UPDATE salas SET professor='' WHERE id=? AND professor<>''");
+  return salas.reduce((total, sala) => total +
+    (normalizarNomeProfessor(sala.professor) === '' && String(sala.professor || '').trim()
+      ? Number(limpar.run(sala.id).changes) : 0), 0);
+}
+
 function migrateRespostaFlags(db) {
   const colunas = new Map(
     db.prepare('PRAGMA table_info(respostas)').all().map((coluna) => [coluna.name, coluna])
@@ -187,7 +206,7 @@ function migrateImportedActivitySessions(db) {
 
         const sessoes = db.prepare(`SELECT id, rotulo, importacao_id,
             COALESCE(iniciada_em, aberta_em) AS data
-          FROM sessoes WHERE sala_id=?
+          FROM sessoes WHERE sala_id=? AND status NOT IN ('cancelada','excluida')
           ORDER BY COALESCE(iniciada_em, aberta_em), id`).all(sala.id);
         const atualizarRotulo = db.prepare(
           'UPDATE sessoes SET rotulo = ? WHERE id = ? AND rotulo = ?'
@@ -242,6 +261,8 @@ function verificarSessoesEsperadas(db) {
 module.exports = {
   migrateActivityMetrics,
   migrateSessionLabels,
+  normalizarNomeProfessor,
+  removerMarcadoresDeProfessor,
   backfillSessionLabels,
   migrateReportIndexes,
   migrateRespostaFlags,

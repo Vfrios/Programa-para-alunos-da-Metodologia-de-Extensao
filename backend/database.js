@@ -5,6 +5,7 @@ const { sincronizarCadastros } = require('./database-seed');
 const {
   migrateActivityMetrics,
   migrateSessionLabels,
+  removerMarcadoresDeProfessor,
   backfillSessionLabels,
   migrateRespostaFlags,
   migrateReportIndexes,
@@ -92,6 +93,7 @@ if (caminhoBanco !== caminhoBase && caminhoBanco !== ':memory:') {
     origem.close();
   }
 }
+removerMarcadoresDeProfessor(db);
 migrateImportedActivitySessions(db);
 verificarSessoesEsperadas(db);
 inicializarSugestoesRevisao(db);
