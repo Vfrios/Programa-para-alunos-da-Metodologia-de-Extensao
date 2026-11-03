@@ -38,6 +38,20 @@ exports.ajustarNivel = (nivel, correta, s, tentativas = 1) => {
   return arredondarNivel(clamp(novo));
 };
 
+// NOVO: aproveitamento ponderado por resposta.
+// Regra: 
+//  - 1 tentativa e acertou = 1.0
+//  - 2 tentativas e acertou = 0.5 (acertou depois de 1 erro)
+//  - 3+ tentativas mesmo acertando = 0.0 (dois erros na mesma pergunta = errado)
+//  - Errou todas as tentativas = 0.0
+exports.aproveitamentoResposta = (tentativas, correta) => {
+  if (!correta) return 0;
+  const t = Math.max(1, Number(tentativas) || 1);
+  if (t === 1) return 1.0;
+  if (t === 2) return 0.5;
+  return 0.0;
+};
+
 exports.mensagemErro = (n) => ({ 1: 'Tente de novo!', 2: 'Quase!', 4: 'Tente mais uma vez!' }[n] || '');
 exports.premio = (m) => (m <= 20 ? 'Bronze' : m <= 40 ? 'Prata' : m <= 60 ? 'Ouro' : m <= 80 ? 'Troféu' : 'Coroa');
 exports.nota = (m) => (m >= 80 ? 'Nota máxima' : m >= 60 ? 'Médio' : m >= 40 ? 'Menor' : 'Baixíssima');

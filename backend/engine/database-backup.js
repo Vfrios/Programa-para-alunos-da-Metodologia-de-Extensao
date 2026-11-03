@@ -21,7 +21,7 @@ function restoreDatabase(db, image) {
     backup = new DatabaseSync(caminhoBackup, { readOnly: true });
     const integrity = backup.prepare('PRAGMA integrity_check').get();
     if (integrity.integrity_check !== 'ok') throw new Error('O arquivo de backup está corrompido.');
-    if (backup.prepare("SELECT 1 AS ativa FROM sessoes WHERE status!='encerrada' LIMIT 1").get()) {
+    if (backup.prepare("SELECT 1 AS ativa FROM sessoes WHERE status IN ('aguardando','iniciada') LIMIT 1").get()) {
       throw new Error('O backup contém aulas em andamento. Encerre todas as aulas e exporte um novo backup.');
     }
 

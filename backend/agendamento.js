@@ -1,5 +1,6 @@
 const TZ = 'America/Sao_Paulo';
 exports.DURACAO_MIN = 55;
+exports.LIMITE_ALUNOS_INICIO_AUTOMATICO = 12;
 exports.adicionarMinutos = (hora, minutos) => {
   const total = (exports.paraMin(hora) + minutos) % (24 * 60);
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
@@ -27,3 +28,11 @@ exports.horarioOcorre = (horario, atual) => horario.data
   ? horario.data === atual.data : horario.dia === atual.dia;
 exports.horariosSeSobrepoem = (a, b) => a.dia === b.dia &&
   !(a.data && b.data && a.data !== b.data) && exports.sobrepoe(a.hora, a.fim, b.hora, b.fim);
+exports.limiteInicioAutomatico = (horario, atual, agoraReal = new Date()) => {
+  const espera = Number(horario.inicio_espera_min ?? 8);
+  const segundos = agoraReal.getSeconds() * 1000 + agoraReal.getMilliseconds();
+  const minutosRestantes = exports.paraMin(horario.hora) + espera - atual.min;
+  return new Date(agoraReal.getTime() + minutosRestantes * 60000 - segundos).toISOString();
+};
+exports.deveIniciarAutomaticamente = (alunosProntos, limite, agoraReal = Date.now()) =>
+  alunosProntos >= exports.LIMITE_ALUNOS_INICIO_AUTOMATICO || (limite != null && Date.parse(limite) <= agoraReal);

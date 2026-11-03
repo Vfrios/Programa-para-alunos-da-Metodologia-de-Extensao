@@ -1,8 +1,19 @@
-CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY AUTOINCREMENT, usuario TEXT UNIQUE NOT NULL, senha_hash TEXT NOT NULL, papel TEXT NOT NULL DEFAULT 'admin' CHECK(papel IN ('admin','primario')));
+CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY AUTOINCREMENT, usuario TEXT UNIQUE NOT NULL, senha_hash TEXT NOT NULL, papel TEXT NOT NULL DEFAULT 'admin' CHECK(papel='admin'), tipo_acesso TEXT NOT NULL DEFAULT 'admin' CHECK(tipo_acesso IN ('professor','admin')));
 CREATE TABLE IF NOT EXISTS salas(id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, ano INTEGER NOT NULL CHECK(ano IN (2,3)), professor TEXT NOT NULL, periodo TEXT NOT NULL DEFAULT 'Manhã', dificuldade TEXT NOT NULL DEFAULT 'Básico', conteudo_maior_dificuldade TEXT);
-CREATE TABLE IF NOT EXISTS horarios(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, dia INTEGER NOT NULL, data TEXT, hora TEXT NOT NULL, fim TEXT);
+CREATE TABLE IF NOT EXISTS horarios(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, dia INTEGER NOT NULL, data TEXT, hora TEXT NOT NULL, fim TEXT, inicio_espera_min INTEGER NOT NULL DEFAULT 8 CHECK(inicio_espera_min BETWEEN 0 AND 60));
 CREATE TABLE IF NOT EXISTS conteudos(sala_id INTEGER NOT NULL, atividade TEXT NOT NULL, PRIMARY KEY(sala_id, atividade));
-CREATE TABLE IF NOT EXISTS sessoes(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'aguardando', aberta_em TEXT NOT NULL, iniciada_em TEXT, encerrada_em TEXT, fim_previsto_em TEXT);
+CREATE TABLE IF NOT EXISTS sessoes(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sala_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'aguardando',
+  aberta_em TEXT NOT NULL,
+  iniciada_em TEXT,
+  encerrada_em TEXT,
+  fim_previsto_em TEXT,
+  iniciar_ate_em TEXT,
+  rotulo TEXT,
+  importacao_id INTEGER
+);
 CREATE TABLE IF NOT EXISTS alunos(id INTEGER PRIMARY KEY AUTOINCREMENT, sessao_id INTEGER NOT NULL, sala_id INTEGER NOT NULL, nome TEXT NOT NULL, idade INTEGER, criado_em TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS perfis(aluno_id INTEGER NOT NULL, atividade TEXT NOT NULL, nivel REAL NOT NULL DEFAULT 1, acertos INTEGER NOT NULL DEFAULT 0, erros INTEGER NOT NULL DEFAULT 0, tempo_medio REAL NOT NULL DEFAULT 0, PRIMARY KEY(aluno_id, atividade));
 CREATE TABLE IF NOT EXISTS respostas(id INTEGER PRIMARY KEY AUTOINCREMENT, aluno_id INTEGER NOT NULL, sessao_id INTEGER NOT NULL, atividade TEXT NOT NULL, nivel REAL NOT NULL, pergunta TEXT NOT NULL, resposta TEXT, correta INTEGER NOT NULL, tentativas INTEGER NOT NULL, dica INTEGER NOT NULL DEFAULT 0, pontos INTEGER NOT NULL, tempo REAL NOT NULL, criado_em TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -16,3 +27,8 @@ CREATE TABLE IF NOT EXISTS sugestoes_revisao(aluno_importado_id INTEGER PRIMARY 
 CREATE TABLE IF NOT EXISTS exclusoes_alunos_importados(id INTEGER PRIMARY KEY AUTOINCREMENT, sala_id INTEGER NOT NULL, arquivo TEXT NOT NULL, linha_origem INTEGER NOT NULL, nome TEXT, UNIQUE(sala_id, arquivo, linha_origem));
 CREATE INDEX IF NOT EXISTS idx_resp_aluno ON respostas(aluno_id);
 CREATE INDEX IF NOT EXISTS idx_alunos_sessao ON alunos(sessao_id);
+CREATE INDEX IF NOT EXISTS idx_sessoes_sala ON sessoes(sala_id);
+CREATE INDEX IF NOT EXISTS idx_sessoes_status ON sessoes(status);
+CREATE INDEX IF NOT EXISTS idx_sessoes_data ON sessoes(COALESCE(iniciada_em, aberta_em));
+CREATE INDEX IF NOT EXISTS idx_respostas_sessao ON respostas(sessao_id);
+CREATE INDEX IF NOT EXISTS idx_respostas_sessao_atividade ON respostas(sessao_id, atividade);

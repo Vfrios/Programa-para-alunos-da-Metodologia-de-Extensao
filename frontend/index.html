@@ -21,6 +21,13 @@
   @media(prefers-reduced-motion:no-preference){.tela.ativa{animation:fade .3s}@keyframes fade{from{opacity:0}}
     .pula{animation:pula .4s}@keyframes pula{40%{transform:scale(1.2)}}.treme{animation:treme .3s}@keyframes treme{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}}
   h2{margin:.2em 0 .4em}
+
+  /* CADASTRO GRANDE E CENTRALIZADO */
+  #t-cadastro{text-align:center;padding:40px 20px}
+  #t-cadastro h2{font-size:2.6rem;margin-bottom:24px;line-height:1.2}
+  #t-cadastro input{font:inherit;font-size:2.4rem;width:100%;max-width:720px;padding:16px 20px;border:4px solid var(--tinta);border-radius:18px;text-align:center;margin:0 auto;display:block}
+  #t-cadastro .instrucao{font-size:1.4rem;color:#526579;margin:16px 0;display:block}
+
   input{font:inherit;font-size:1.6rem;width:100%;padding:8px 12px;border:3px solid var(--tinta);border-radius:12px}
   button,.chip{font:inherit;font-weight:700;font-size:1.5rem;border:3px solid var(--tinta);border-radius:14px;background:var(--lapis);color:var(--tinta);padding:10px 20px;cursor:pointer;box-shadow:3px 3px 0 var(--tinta)}
   button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--tinta)}
@@ -89,6 +96,9 @@
     #tabuleiro-memoria.dois-pares{grid-template-columns:repeat(2,64px)}
     #tabuleiro-memoria button{font-size:1.6rem;border-width:2px;border-radius:10px}
     #pausa-contagem{font-size:1.1rem}
+    #t-cadastro{padding:20px}
+    #t-cadastro h2{font-size:2.2rem}
+    #t-cadastro input{font-size:2rem;padding:12px 16px}
   }
   @media(prefers-reduced-motion:reduce){.conf{display:none}}
 </style>
@@ -100,10 +110,12 @@
     <div id="t-fechado" class="tela" style="text-align:center"><h2>Ainda não começou.</h2><p style="font-size:1.5rem">Aguarde a sua aula! 🕒</p></div>
 
     <div id="t-cadastro" class="tela">
-      <h2>Como você se chama?</h2><input id="nome" maxlength="30" autocomplete="off" list="nomes-sugeridos"><datalist id="nomes-sugeridos"></datalist>
-      <p id="dica-nomes" hidden>Se o seu nome aparecer na lista, selecione-o.</p>
-      <h2>Quantos anos você tem?</h2><div class="opcoes" id="idades"></div>
-      <p style="text-align:center"><button id="b-entrar" disabled>Entrar</button></p>
+      <h2>Digite seu nome e sobrenome</h2>
+      <input id="nome" maxlength="60" autocomplete="off" placeholder="Ex.: Maria Silva" list="nomes-sugeridos">
+      <datalist id="nomes-sugeridos"></datalist>
+      <span class="instrucao" id="dica-nomes" hidden>Se o seu nome aparecer na lista, selecione-o.</span>
+      <p style="margin-top:24px"><button id="b-entrar" disabled style="font-size:2rem;padding:14px 40px">Entrar</button></p>
+      <p id="erro-cadastro" style="color:#c0392b;font-size:1.2rem;min-height:1.4rem;margin-top:12px"></p>
     </div>
 
     <div id="t-espera" class="tela" style="text-align:center">
@@ -149,7 +161,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const api = async (u, b) => {
-  const controle = new AbortController(), timeout = setTimeout(() => controle.abort(), 10000);
+  const controle = new AbortController(), timeout = setTimeout(() => controle.abort(), 12000);
   try {
     const r = await fetch(u, { ...(b ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) } : {}), signal: controle.signal });
     return await r.json();
@@ -159,10 +171,11 @@ const mostrar = (id) => document.querySelectorAll('.tela').forEach((t) => t.clas
 const EMOJI = { Bronze: '🥉', Prata: '🥈', Ouro: '🥇', 'Troféu': '🏆', Coroa: '👑' };
 const NOMES_UNIDADES = { mm: 'milímetros', cm: 'centímetros', m: 'metros', km: 'quilômetros', g: 'gramas', kg: 'quilogramas', mL: 'mililitros', L: 'litros' };
 
-let aluno = null, q = null, digitado = '', travado = false, verificarRespostaTimer = null, verificandoResposta = false, total = 0, dados = [], idade = null, encerrada = false;
+let aluno = null, q = null, digitado = '', travado = false, verificarRespostaTimer = null, verificandoResposta = false, total = 0, dados = [], encerrada = false;
 let perguntaCarregando = false, tentarPerguntaTimer = null, sincronizarPontuacao = false;
 let pausaTimer = null, jogoMemoriaAtivo = false, cartasMemoria = [], cartasViradas = [], paresMemoria = [], bloqueioMemoria = null, pacoteMemoriaAnterior = -1;
 let desafioAtual = null, desafioResolvido = false, desafioEnviando = false;
+let enviandoResposta = false;
 
 const CENAS = {
   soma: [['🧺', '🍎'], ['🛒', '🍌'], ['🚀', '⭐']],
@@ -209,14 +222,19 @@ function pararJogoMemoria() {
   desenharCartasMemoria();
 }
 
-function iniciarJogoMemoria(totalPares = 3) {
+function iniciarJogoMemoria(totalPares = 3, emojisSugeridos = null) {
   pararJogoMemoria();
-  let pacote = Math.floor(Math.random() * PACOTES_MEMORIA.length);
-  if (pacote === pacoteMemoriaAnterior) {
-    pacote = (pacote + 1 + Math.floor(Math.random() * (PACOTES_MEMORIA.length - 1))) % PACOTES_MEMORIA.length;
+  let imagens;
+  if (Array.isArray(emojisSugeridos) && emojisSugeridos.length >= totalPares) {
+    imagens = emojisSugeridos.slice(0, totalPares);
+  } else {
+    let pacote = Math.floor(Math.random() * PACOTES_MEMORIA.length);
+    if (pacote === pacoteMemoriaAnterior) {
+      pacote = (pacote + 1 + Math.floor(Math.random() * (PACOTES_MEMORIA.length - 1))) % PACOTES_MEMORIA.length;
+    }
+    pacoteMemoriaAnterior = pacote;
+    imagens = PACOTES_MEMORIA[pacote].slice(0, totalPares);
   }
-  pacoteMemoriaAnterior = pacote;
-  const imagens = PACOTES_MEMORIA[pacote].slice(0, totalPares);
   cartasMemoria = [...imagens, ...imagens];
   for (let i = cartasMemoria.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -284,7 +302,7 @@ async function iniciarPausa() {
     if (r.tipo === 'memoria') {
       $('pausa-opcoes').hidden = true; $('pausa-opcoes').replaceChildren();
       $('tabuleiro-memoria').hidden = false; $('memoria-pares').hidden = false;
-      iniciarJogoMemoria(r.pares || 3);
+      iniciarJogoMemoria(r.pares || 3, r.emojis || null);
     } else {
       pararJogoMemoria(); $('tabuleiro-memoria').hidden = true; $('memoria-pares').hidden = true;
       $('pausa-opcoes').hidden = false;
@@ -357,15 +375,33 @@ async function init() {
   $('lado').hidden = true; $('main').classList.remove('com-lado'); $('pontos').hidden = true; total = 0;
   mostrar(e.sessao ? 't-cadastro' : 't-fechado');
 }
-[7, 8, 9].forEach((n) => { const b = document.createElement('button'); b.textContent = n;
-  b.onclick = () => { idade = n; [...$('idades').children].forEach((c) => c.classList.toggle('sel', c === b)); valida(); }; $('idades').appendChild(b); });
-const valida = () => { $('b-entrar').disabled = !($('nome').value.trim() && idade); };
-$('nome').oninput = valida;
-$('b-entrar').onclick = async () => {
-  const r = await api('/api/alunos', { nome: $('nome').value, idade });
-  if (r.erro) return alert(r.erro);
-  aluno = { id: r.alunoId, nome: r.nome }; localStorage.setItem('aluno', JSON.stringify(aluno)); entrar(r.status);
+
+const valida = () => {
+  const valor = $('nome').value.trim().replace(/\s+/g, ' ');
+  const partes = valor.split(' ').filter(Boolean);
+  const ok = partes.length >= 2 && valor.length >= 3;
+  $('b-entrar').disabled = !ok;
+  $('erro-cadastro').textContent = valor.length > 0 && partes.length < 2 ? 'Digite seu nome e sobrenome.' : '';
 };
+$('nome').oninput = valida;
+
+$('b-entrar').onclick = async () => {
+  const botao = $('b-entrar');
+  botao.disabled = true;
+  try {
+    const r = await api('/api/alunos', { nome: $('nome').value });
+    if (r.erro) {
+      $('erro-cadastro').textContent = r.erro;
+      botao.disabled = false;
+      return;
+    }
+    aluno = { id: r.alunoId, nome: r.nome }; localStorage.setItem('aluno', JSON.stringify(aluno)); entrar(r.status);
+  } catch {
+    $('erro-cadastro').textContent = 'Não foi possível conectar. Tente novamente.';
+    botao.disabled = false;
+  }
+};
+
 function entrar(status) {
   $('lado').hidden = false; $('main').classList.add('com-lado'); $('pontos').hidden = false;
   socket.emit('entrar', { alunoId: aluno.id });
@@ -409,6 +445,7 @@ async function proxima() {
   $('espera-texto').textContent = 'Carregando sua próxima pergunta...';
   const alunoId = aluno.id;
   perguntaCarregando = true;
+  enviandoResposta = false;
   let r;
   try {
     r = await api('/api/pergunta', { alunoId });
@@ -448,40 +485,68 @@ async function proxima() {
   $('a-clicar').style.display = r.tipo === 'clicar' ? 'flex' : 'none';
   $('a-arrastar').style.display = r.tipo === 'arrastar' ? 'block' : 'none';
   if (r.tipo === 'digitar') montarTeclado();
-  if (r.tipo === 'clicar') { $('a-clicar').innerHTML = ''; r.opcoes.forEach((o) => { const b = document.createElement('button'); b.textContent = o; b.onclick = () => enviar(o, b); $('a-clicar').appendChild(b); }); }
-  if (r.tipo === 'arrastar') { $('alvo').textContent = '?'; $('alvo').classList.remove('certo'); $('chips').innerHTML = ''; r.opcoes.forEach((o) => $('chips').appendChild(chip(o))); }
+  if (r.tipo === 'clicar') {
+    $('a-clicar').innerHTML = '';
+    r.opcoes.forEach((o) => {
+      const b = document.createElement('button');
+      b.textContent = o;
+      b.onclick = () => enviar(o, b);
+      $('a-clicar').appendChild(b);
+    });
+  }
+  if (r.tipo === 'arrastar') {
+    $('alvo').textContent = '?'; $('alvo').classList.remove('certo'); $('chips').innerHTML = '';
+    r.opcoes.forEach((o) => $('chips').appendChild(chip(o)));
+  }
   $('espera-texto').textContent = 'Aguardando o professor iniciar a atividade...';
   travado = false;
   mostrar('t-jogo');
 }
+
 function montarTeclado() {
   $('visor').textContent = ''; $('teclado').innerHTML = '';
-  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'OK'].forEach((k) => { const b = document.createElement('button'); b.textContent = k; b.onclick = () => tecla(k); $('teclado').appendChild(b); });
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'OK'].forEach((k) => {
+    const b = document.createElement('button');
+    b.textContent = k;
+    b.onclick = () => tecla(k);
+    $('teclado').appendChild(b);
+  });
 }
+
 function tecla(k) {
-  if (travado) return;
+  if (travado || !q) return;
   if (k === '⌫') digitado = digitado.slice(0, -1);
-  else if (k === 'OK') { if (digitado) enviar(digitado); return; }
+  else if (k === 'OK') { if (digitado && !enviandoResposta) enviar(digitado); return; }
   else if (digitado.length < (q?.maxDigitos || 3)) digitado += k;
   $('visor').textContent = digitado;
   agendarVerificacaoResposta();
 }
+
 function agendarVerificacaoResposta() {
   if (verificarRespostaTimer) clearTimeout(verificarRespostaTimer);
-  if (!digitado) return;
+  if (!digitado || travado || enviandoResposta) return;
   const resposta = digitado;
   verificarRespostaTimer = setTimeout(async () => {
     verificarRespostaTimer = null;
-    if (travado || q?.tipo !== 'digitar' || !aluno) return;
+    if (travado || q?.tipo !== 'digitar' || !aluno || enviandoResposta) return;
     if (verificandoResposta) return agendarVerificacaoResposta();
     verificandoResposta = true;
     try {
       const resultado = await api('/api/resposta/teclado', { alunoId: aluno.id, resposta });
-      if (resultado.correta) return enviar(resposta, null, resultado);
-      if (resultado.erro === 'Sem pergunta em andamento.') return recuperarPerguntaEmAndamento();
-      if (resultado.erro && !travado && digitado === resposta) {
-        $('msg').textContent = resultado.erro;
-        $('msg').className = 'erro';
+      if (!resultado || typeof resultado !== 'object') return;
+      if (resultado.correta === true) {
+        // Só envia se a resposta atual ainda é a mesma que foi verificada
+        if (digitado === resposta && !travado && !enviandoResposta) {
+          enviandoResposta = true;
+          await enviar(resposta, null, resultado);
+        }
+      } else if (resultado.erro === 'Sem pergunta em andamento.') {
+        recuperarPerguntaEmAndamento();
+      } else if (resultado.erro) {
+        if (!travado && digitado === resposta) {
+          $('msg').textContent = resultado.erro;
+          $('msg').className = 'erro';
+        }
       }
     } catch {
       if (!travado && digitado === resposta) {
@@ -490,15 +555,20 @@ function agendarVerificacaoResposta() {
       }
     } finally {
       verificandoResposta = false;
+      enviandoResposta = false;
       if (!travado && digitado !== resposta) agendarVerificacaoResposta();
     }
-  }, 250);
+  }, 300);
 }
+
 document.addEventListener('keydown', (e) => {
   if (!$('t-jogo').classList.contains('ativa') || q?.tipo !== 'digitar') return;
-  if (/^\d$/.test(e.key)) tecla(e.key); else if (e.key === 'Backspace') tecla('⌫'); else if (e.key === 'Enter') tecla('OK');
+  if (/^\d$/.test(e.key)) tecla(e.key);
+  else if (e.key === 'Backspace') tecla('⌫');
+  else if (e.key === 'Enter') tecla('OK');
 });
-function chip(valor) { // arrastar com mouse ou dedo; um toque simples também responde
+
+function chip(valor) {
   const c = document.createElement('div'); c.className = 'chip'; c.dataset.valor = valor;
   const nome = NOMES_UNIDADES[valor];
   if (nome) {
@@ -510,42 +580,58 @@ function chip(valor) { // arrastar com mouse ou dedo; um toque simples também r
   let x0, y0, mov = false;
   c.onpointerdown = (e) => { if (travado) return; c.setPointerCapture(e.pointerId); x0 = e.clientX; y0 = e.clientY; mov = false; c.classList.add('arrasta'); };
   c.onpointermove = (e) => { if (!c.hasPointerCapture(e.pointerId)) return; const dx = e.clientX - x0, dy = e.clientY - y0; if (Math.abs(dx) + Math.abs(dy) > 8) mov = true; c.style.transform = `translate(${dx}px,${dy}px)`; };
-  c.onpointerup = (e) => { c.classList.remove('arrasta'); c.style.transform = ''; const a = $('alvo').getBoundingClientRect();
+  c.onpointerup = (e) => {
+    c.classList.remove('arrasta'); c.style.transform = '';
+    if (travado || enviandoResposta) return;
+    const a = $('alvo').getBoundingClientRect();
     const dentro = e.clientX >= a.left && e.clientX <= a.right && e.clientY >= a.top && e.clientY <= a.bottom;
-    if (!mov || dentro) { $('alvo').textContent = valor; enviar(valor, c); } };
+    if (!mov || dentro) { $('alvo').textContent = valor; enviar(valor, c); }
+  };
   return c;
 }
+
 async function enviar(resposta, el, resultadoConfirmado = null) {
-  if (travado) return; travado = true;
+  if (travado) return;
+  if (enviandoResposta && !resultadoConfirmado) return;
+  travado = true;
   const msg = $('msg');
   msg.textContent = 'Enviando resposta...'; msg.className = '';
   let r;
-  try { r = resultadoConfirmado || await api('/api/resposta', { alunoId: aluno.id, resposta }); }
-  catch {
+  try {
+    r = resultadoConfirmado || await api('/api/resposta', { alunoId: aluno.id, resposta });
+  } catch {
     msg.textContent = 'Conexão instável. Retomando sua pergunta automaticamente...';
     msg.className = 'erro'; sincronizarPontuacao = true; agendarNovaTentativa(); return;
   }
+  if (!r) { travado = false; return; }
   if (r.erro === 'Sem pergunta em andamento.') return recuperarPerguntaEmAndamento();
   if (r.erro) { msg.textContent = r.erro; msg.className = 'erro'; travado = false; return; }
   if (r.correta) {
-    total += r.pontos; $('pontos').textContent = total + ' pontos'; $('pontos').classList.add('pula'); setTimeout(() => $('pontos').classList.remove('pula'), 500);
-    el?.classList.add('certo'); if (q.tipo === 'arrastar') $('alvo').classList.add('certo');
+    total += r.pontos; $('pontos').textContent = total + ' pontos';
+    $('pontos').classList.add('pula'); setTimeout(() => $('pontos').classList.remove('pula'), 500);
+    el?.classList.add('certo');
+    if (q?.tipo === 'arrastar') $('alvo').classList.add('certo');
     const elogio = ELOGIOS_ROBO[Math.floor(Math.random() * ELOGIOS_ROBO.length)];
-    msg.textContent = `✅ ${elogio} +${r.pontos}`; msg.className = 'ok'; som(660); setTimeout(() => som(880), 120); confete();
+    msg.textContent = `✅ ${elogio} +${r.pontos}`; msg.className = 'ok';
+    som(660); setTimeout(() => som(880), 120); confete();
     return setTimeout(() => { if (r.fim) fim(r.resumo); else proxima(); }, 1300);
   }
-  const incentivo = r.erros < 3 ? INCENTIVOS_ROBO[Math.floor(Math.random() * INCENTIVOS_ROBO.length)] : (r.mensagem || 'Vamos com calma!');
-  som(200, .25, 'triangle'); msg.textContent = '🤖 ' + incentivo; msg.className = 'erro'; el?.classList.add('treme'); setTimeout(() => el?.classList.remove('treme'), 400);
-  if (q.tipo === 'arrastar') $('alvo').textContent = '?';
+  const incentivo = r.erros <= 1 ? INCENTIVOS_ROBO[Math.floor(Math.random() * INCENTIVOS_ROBO.length)] : (r.mensagem || 'Vamos com calma!');
+  som(200, .25, 'triangle');
+  msg.textContent = '🤖 ' + incentivo;
+  msg.className = 'erro';
+  el?.classList.add('treme'); setTimeout(() => el?.classList.remove('treme'), 400);
+  if (q?.tipo === 'arrastar') $('alvo').textContent = '?';
   if (r.dica) { $('dica').innerHTML = '💡 ' + r.dica.texto + (r.dica.visual ? `<br>${r.dica.visual}` : ''); $('dica').style.display = 'block'; }
   if (r.terminou) {
     msg.textContent = `✅ A resposta é ${r.respostaCerta}`; msg.className = 'ok';
     document.querySelectorAll('#a-clicar button,#chips .chip').forEach((b) => { if ((b.dataset.valor || b.textContent) === r.respostaCerta) b.classList.add('certo'); });
-    if (q.tipo === 'arrastar') { $('alvo').textContent = r.respostaCerta; $('alvo').classList.add('certo'); }
-    if (q.tipo === 'digitar') $('visor').textContent = r.respostaCerta;
+    if (q?.tipo === 'arrastar') { $('alvo').textContent = r.respostaCerta; $('alvo').classList.add('certo'); }
+    if (q?.tipo === 'digitar') $('visor').textContent = r.respostaCerta;
     return setTimeout(() => { if (r.fim) fim(r.resumo); else proxima(); }, 3200);
   }
-  digitado = ''; if (q.tipo === 'digitar') $('visor').textContent = ''; travado = false;
+  digitado = ''; if (q?.tipo === 'digitar') $('visor').textContent = '';
+  travado = false;
 }
 
 // ---------- fim ----------
@@ -563,9 +649,13 @@ async function fim(res) {
 // ---------- ranking e tempo real ----------
 function pintar() {
   $('rank').innerHTML = '';
-  dados.forEach((a, i) => { const li = document.createElement('li'); if (a.id === aluno?.id) li.className = 'eu';
-    const n = document.createElement('span'); n.className = 'n'; n.textContent = `${['🥇', '🥈', '🥉'][i] || i + 1 + 'º'} ${a.nome}`;
-    const p = document.createElement('b'); p.textContent = a.pontos + ' pts'; li.append(n, p); $('rank').appendChild(li); });
+  dados.forEach((a, i) => {
+    const li = document.createElement('li'); if (a.id === aluno?.id) li.className = 'eu';
+    const n = document.createElement('span'); n.className = 'n';
+    n.textContent = `${['🥇', '🥈', '🥉'][i] || (i + 1) + 'º'} ${a.nome}`;
+    const p = document.createElement('b'); p.textContent = a.pontos + ' pts';
+    li.append(n, p); $('rank').appendChild(li);
+  });
 }
 
 const socket = io();
@@ -573,7 +663,10 @@ socket.on('connect', () => aluno && socket.emit('entrar', { alunoId: aluno.id })
 socket.on('ranking', (d) => { dados = d; pintar(); });
 socket.on('conectados', (n) => ($('conect').textContent = `Alunos conectados: ${n}`));
 socket.on('iniciada', () => aluno && proxima());
-socket.on('encerrada', (d) => { dados = d; pintar(); if (aluno) { encerrada = true; localStorage.removeItem('aluno'); fim(); } });
+socket.on('encerrada', (d) => {
+  dados = d; pintar();
+  if (aluno) { encerrada = true; localStorage.removeItem('aluno'); fim(); }
+});
 socket.on('estado', () => { if (!aluno) init(); });
 init();
 </script>

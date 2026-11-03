@@ -16,7 +16,7 @@ O backend usa o modo watch do Node.js e reinicia automaticamente quando arquivos
 - Em outros dispositivos na mesma rede Wi-Fi/cabeada: use o endereço `Rede local` mostrado no terminal, por exemplo `http://192.168.0.25:3000`.
 - Painel do professor: acrescente `/admin.html` ao mesmo endereço. Login padrão `admin` / `admin123`.
   (troque com `$env:ADMIN_USER="..."; $env:ADMIN_PASS="..."` antes do primeiro start; a senha é gravada criptografada)
-- No ambiente local, o login do administrador primário é `vitor` / `adm1`. Ele pode acessar a aba **Dados de crianças**, editar nomes e excluir registros. Para trocar essas credenciais localmente, defina `$env:PRIMARY_ADMIN_USER` e `$env:PRIMARY_ADMIN_PASS` antes de iniciar.
+- Existem somente dois tipos de acesso: **Professor** e **Administrador**. Professores usam o painel de aula; qualquer Administrador também pode gerenciar usuários e senhas. Na aba **Usuários**, um Administrador pode criar contas, trocar senhas e excluir acessos. Senhas são armazenadas como hash e não podem ser consultadas; para alterar uma, use **Trocar senha**.
 
 Todos os dispositivos devem estar na mesma rede e acessar o mesmo computador/servidor. Se o Windows perguntar, permita Node.js na rede privada. O servidor atende vários alunos simultaneamente; mantenha apenas uma instância em execução para a turma.
 
@@ -29,11 +29,9 @@ Perguntas por aluno (padrão 10): `$env:TOTAL_PERGUNTAS=15`.
 
 O arquivo `render.yaml` configura um Web Service Node.js no plano gratuito do Render, sem Persistent Disk. No Render, crie ou atualize o Blueprint a partir deste repositório. O usuário inicial é `professor`; o Render gera `ADMIN_PASS` como segredo. Consulte-o no painel do serviço e troque-o antes de compartilhar o endereço. Em produção, `ADMIN_USER` e `ADMIN_PASS` configurados no Render atualizam a conta de administrador comum já existente no banco incluído no deploy.
 
-Para ativar o acesso exclusivo de administração primária, configure no painel do Render as variáveis secretas `PRIMARY_ADMIN_USER` e `PRIMARY_ADMIN_PASS`, com credenciais diferentes das variáveis `ADMIN_USER` e `ADMIN_PASS`. Somente esse login separado vê a aba **Dados de crianças** e pode excluir registros; a API também recusa exclusões feitas por administradores comuns. Se as duas variáveis primárias não estiverem configuradas, a exclusão fica desativada. Não coloque essas senhas no código nem em commits.
+Não há mais uma conta de administrador primário separada. No banco, contas antigas desse tipo passam a ser **Administrador**; a conta configurada por `ADMIN_USER` e `ADMIN_PASS` também tem esse acesso. Administradores podem criar contas de Professor ou Administrador pela aba **Usuários**.
 
 O `DB_FILE` do Render aponta para `/opt/render/project/src/database/matematica.db`, o único banco SQLite autorizado e localizado na pasta do projeto; qualquer caminho diferente é recusado. Nenhum diretório temporário ou disco pago é usado. Nos logs, o app informa o caminho do arquivo aberto. **Limitação do plano gratuito:** o sistema de arquivos do serviço é efêmero; alterações no banco podem desaparecer quando o Render suspender, reiniciar ou publicar uma nova versão. SQLite funciona nesse modo, mas o Render não garante persistência dos dados sem armazenamento durável. O SQLite usa journal tradicional e `synchronous=FULL`; arquivos de journal são temporários durante as gravações e removidos ao concluir. O Render fornece HTTPS no endereço publicado.
-
-Na aba **Backup**, o administrador primário pode baixar um arquivo SQLite com os dados de todas as turmas/aulas. Guarde uma cópia fora do Render. Antes de restaurar, o sistema pede confirmação explícita mostrando o nome do arquivo e avisa que todos os dados serão trocados. A restauração só funciona com as aulas encerradas; ao concluir, informa se o conteúdo realmente mudou e quantas tabelas diferem, e exige novo login usando as credenciais do backup. Restaure um backup criado por uma versão compatível do sistema.
 
 Como o caminho do Render é o próprio `database\matematica.db` incluído no deploy, salas, horários, conteúdos e registros agregados são servidos diretamente desse arquivo. Para publicar alterações feitas localmente, inclua o banco atualizado no deploy da branch configurada no Render.
 
@@ -43,13 +41,13 @@ Nas perguntas respondidas pelo teclado numérico, a resposta correta é enviada 
 
 No painel do professor, cada sessão em andamento mostra o tempo decorrido desde o início da atividade. Os relatórios por criança incluem perguntas respondidas, acertos, percentual médio de acerto, pontos e desempenho por conteúdo. O percentual considera as tentativas: acerto na primeira vale 100%, após um erro vale 75%, após dois erros vale 25%, e respostas incorretas ou acertos após três erros valem 0%. A contagem de **Acertos** continua indicando quantas respostas foram registradas como corretas; por isso pode diferir do percentual ponderado. O relatório **Geral** reúne o ranking de todas as salas e permite expandir cada sala para consultar o desempenho das crianças, os resultados por atividade da turma e por criança; as exportações CSV e PDF incluem o ranking e os dados de todas as salas. O relatório **Por sala** também destaca, por criança, os conteúdos com menor percentual de acerto e lista os conteúdos de menor acerto da turma. Esses indicadores usam respostas por atividade registradas no sistema; históricos agregados de planilhas sem informação por atividade aparecem como indisponíveis, sem estimativas.
 
-Cada conteúdo possui 30 modelos diferentes de enunciado. O sistema os embaralha e percorre os 30 antes de repetir um modelo para a mesma criança e conteúdo; os números, sequências, figuras e objetos também continuam variando conforme a atividade e o nível.
+Cada conteúdo possui 25 enunciados-base e 25 aberturas, totalizando 625 combinações diferentes. O sistema embaralha e percorre todas as combinações antes de repetir um modelo para a mesma criança e conteúdo; números, sequências, figuras e objetos também continuam variando conforme a atividade e o nível.
 
 Os dados agregados das planilhas entram nos relatórios **Geral** e **Por sala**, junto com os dados das atividades atuais. Eles estão no banco incluído no deploy e também são sincronizados para um banco remoto configurado por `DB_FILE` na inicialização do Render, sem duplicar registros. As quatro planilhas aparecem como **Planilha** nos relatórios. Os dados por atividade são agregados e não representam respostas individuais reais; médias de tempo ausentes permanecem indisponíveis.
 
 ### Importar a planilha da próxima aula
 
-Exporte a planilha do Excel como **CSV UTF-8**. O relatório pode conter uma ou várias salas, mas importe uma sala por vez usando o ID da sala no banco. O comando atualiza a carga mais recente daquela sala, sem duplicar os alunos, e preserva exclusões feitas pelo administrador primário:
+Exporte a planilha do Excel como **CSV UTF-8**. O relatório pode conter uma ou várias salas, mas importe uma sala por vez usando o ID da sala no banco. O comando atualiza a carga mais recente daquela sala, sem duplicar os alunos, e preserva exclusões feitas por um administrador:
 
 ```powershell
 node backend\importar-planilha.js --sala 13 --arquivo "C:\caminho\relatorio-geral.csv"
@@ -65,7 +63,7 @@ Confira os IDs das salas no painel do professor em **Salas** ou no arquivo `data
 4. Admin → **Iniciar atividade** → todos recebem a 1ª pergunta ao mesmo tempo.
 5. **Encerrar sessão** → ranking final, histórico e prêmios são salvos.
 
-Em **Salas**, selecione um ou mais conteúdos para reforçar; todos os conteúdos escolhidos recebem o ajuste de nível configurado para a turma. Cadastre também o dia, o horário de início e o fim de cada aula. O fim padrão fica 55 minutos depois do início (por exemplo, 14:40–15:35), mas pode ser alterado. No início programado, a sessão abre sozinha e encerra no horário de fim configurado.
+Em **Salas**, selecione um ou mais conteúdos para reforçar; todos os conteúdos escolhidos recebem o ajuste de nível configurado para a turma. Cadastre também o dia, o horário de início, o fim e o tempo de espera para início automático (de 0 a 60 minutos; padrão de 8). O fim padrão fica 55 minutos depois do início (por exemplo, 14:40–15:35), mas pode ser alterado. No horário programado, a sessão abre sozinha e começa quando 12 alunos estiverem cadastrados ou quando a espera terminar, o que ocorrer primeiro. Alunos podem entrar depois do início, e a sessão encerra no horário de fim configurado, sem estender a aula pela espera. Sessões abertas fora de um horário cadastrado continuam podendo ser iniciadas manualmente.
 
 ## Estrutura
 

@@ -9,7 +9,7 @@
   *{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;color:var(--tinta);background:#f7fbff}
   header{display:flex;gap:12px;align-items:center;padding:12px 20px;background:var(--tinta);color:#fff;flex-wrap:wrap}
   header h1{font-size:1.2rem;margin:0;flex:1}
-  main{max-width:960px;margin:0 auto;padding:16px}
+  main{max-width:1100px;margin:0 auto;padding:16px}
   button{font:inherit;font-weight:600;border:2px solid var(--tinta);border-radius:8px;background:var(--lapis);color:var(--tinta);padding:6px 14px;cursor:pointer}
   #mostrar-senha{padding:6px 8px}
   header button{border-color:#fff}button.sel{background:var(--azul);color:#fff}
@@ -25,14 +25,19 @@
   .selecao-conteudos label:focus-within{outline:3px solid #9dbbff;outline-offset:2px}
   .aba{display:none}.aba.ativa{display:block}
   table{border-collapse:collapse;width:100%}th,td{border:1px solid var(--grade);padding:4px 8px;text-align:left}th{background:var(--grade)}
-  .timer{font-size:1.2rem}.resumo-relatorio{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
+  .timer{font-size:1.2rem}
+  .resumo-relatorio{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
   .metrica{background:#fff;border:2px solid var(--grade);border-radius:10px;padding:10px}.metrica b{display:block;font-size:1.4rem}
   .destaque-relatorio{background:#fff6cf;border-radius:10px;padding:10px;margin:12px 0}
   .sala-expandivel summary{cursor:pointer}.sala-expandivel summary::marker{color:var(--azul)}
   .sala-expandivel h4{margin-bottom:6px}
   #erro{color:#c0392b;font-weight:600}
+  .atv-card{border:1px solid var(--grade);border-radius:10px;padding:10px;margin:8px 0;background:#fff}
+  .atv-card header{background:transparent;padding:0;display:flex;justify-content:space-between;align-items:center;color:var(--tinta);margin-bottom:8px}
+  .atv-card header b{color:var(--azul)}
+  .muted{color:#526579;font-size:0.9rem}
   @media print{header,.sem-print{display:none}main{max-width:none;padding:0}.caixa,.item{box-shadow:none}}
-  @media(max-width:600px){#r-tabela{overflow-x:auto}table{min-width:600px}}
+  @media(max-width:700px){#r-tabela{overflow-x:auto}table{min-width:600px}}
 </style>
 </head>
 <body>
@@ -45,28 +50,32 @@
 
 <div id="app" hidden>
 <header><h1>🧮 Matemática Divertida — Admin</h1>
-  <button data-aba="aula" class="sel">Aula</button><button data-aba="salas">Salas</button><button data-aba="rel">Relatórios</button><button data-aba="dados" id="botao-dados" hidden>Dados de crianças</button><button data-aba="backup" id="botao-backup" hidden>Backup</button><button id="sair">Sair</button></header>
+  <button data-aba="aula" class="sel">Aula</button><button data-aba="salas">Turmas</button><button data-aba="historico">Histórico</button><button data-aba="rel">Relatórios</button><button data-aba="usuarios" id="botao-usuarios" hidden>Usuários</button><button id="sair">Sair</button></header>
 <main>
   <section id="aba-aula" class="aba ativa">
-    <div class="caixa"><div class="linha"><b>Sala:</b> <select id="sel-sala"></select> <button id="abrir">Abrir sessão</button>
-      <small>(as sessões também abrem sozinhas no horário cadastrado)</small></div></div>
+    <div class="caixa">
+      <h3>Abrir nova atividade</h3>
+      <p class="muted">Cada "atividade" é uma sessão com data/hora. Ao abrir, é criada uma nova atividade para a turma. O nome padrão já inclui a data de hoje. Você pode renomear no momento da abertura.</p>
+      <div class="linha"><b>Turma:</b> <select id="sel-sala"></select> <input id="rotulo-atv" placeholder="Nome da atividade (ex: Atividade 24/03)" style="flex:1;min-width:220px"> <button id="abrir">Abrir atividade</button></div>
+      <small>(as atividades também abrem sozinhas no horário cadastrado, usando o nome padrão "Atividade DD/MM/AAAA")</small>
+    </div>
     <div id="sessoes"></div>
   </section>
 
   <section id="aba-salas" class="aba">
-    <div class="caixa"><h3 id="form-titulo">Nova sala</h3><input type="hidden" id="f-id">
+    <div class="caixa"><h3 id="form-titulo">Nova turma</h3><input type="hidden" id="f-id">
       <div class="linha"><input id="f-nome" placeholder="Nome (ex: 2º A)"> <select id="f-ano" aria-label="Ano"><option value="2">2º ano</option><option value="3">3º ano</option></select>
         <input id="f-prof" placeholder="Professor responsável"></div>
       <fieldset class="selecao-conteudos" id="f-conteudo-dificil"><legend>Conteúdos para reforçar</legend></fieldset>
       <div><b>Horários</b> <small>Data opcional: preenchida, a sessão abre somente nesse dia; vazia, repete semanalmente.</small>
         <button id="add-h" type="button">+ horário</button><div id="f-horarios"></div></div>
       <div style="margin-top:8px"><b>Conteúdo</b><div class="linha" id="f-ativ"></div></div>
-      <div class="linha"><button id="salvar">Salvar sala</button> <button id="cancelar" type="button">Limpar</button> <span id="f-erro" style="color:#c0392b"></span></div>
+      <div class="linha"><button id="salvar">Salvar turma</button> <button id="cancelar" type="button">Limpar</button> <span id="f-erro" style="color:#c0392b"></span></div>
     </div>
     <div class="caixa">
-      <b>Filtrar salas</b>
+      <b>Filtrar turmas</b>
       <div class="linha">
-        <input id="salas-pesquisa" type="search" placeholder="Pesquisar por sala ou professor" aria-label="Pesquisar salas">
+        <input id="salas-pesquisa" type="search" placeholder="Pesquisar por turma ou professor" aria-label="Pesquisar turmas">
         <select id="salas-filtro-dia" aria-label="Filtrar por dia da semana">
           <option value="">Todos os dias</option>
           <option value="1">Segunda</option><option value="2">Terça</option><option value="3">Quarta</option>
@@ -79,36 +88,59 @@
       </div>
     </div>
     <div class="linha"><label><input id="salas-selecionar-todas" type="checkbox"> Selecionar todas</label>
-      <button id="salas-excluir-selecionadas" type="button" disabled>Excluir selecionadas</button><small id="salas-selecao-contagem">0 salas selecionadas</small></div>
+      <button id="salas-excluir-selecionadas" type="button" disabled>Excluir selecionadas</button><small id="salas-selecao-contagem">0 turmas selecionadas</small></div>
     <div id="lista-salas"></div>
   </section>
 
-  <section id="aba-rel" class="aba">
-    <div class="caixa sem-print"><div class="linha">
-      <select id="r-tipo"><option value="geral">Geral</option><option value="sala">Por sala</option></select>
-      <select id="r-alvo"></select><button id="r-ver">Ver</button><button id="r-csv">Exportar CSV</button><button id="r-pdf">Exportar PDF</button></div></div>
-    <div id="r-resumo"></div><div id="r-tabela"></div>
-  </section>
-
-  <section id="aba-dados" class="aba">
-    <div class="caixa"><h2>Dados de crianças</h2>
-      <p>Exclusão permanente. Registros de atividades encerradas apagam respostas, desafios, perfil e histórico de ranking; históricos importados removem somente a linha agregada selecionada. Nomes repetidos em históricos antigos sem identificação individual são anonimizados para evitar excluir dados de outra criança.</p>
-      <button id="dados-atualizar" type="button">Atualizar lista</button><div id="dados-criancas"></div>
-    </div>
-  </section>
-
-  <section id="aba-backup" class="aba">
+  <section id="aba-historico" class="aba">
     <div class="caixa">
-      <h2>Backup do banco de dados</h2>
-      <p>Exporte um arquivo SQLite com os dados de todas as salas e aulas: cadastros, sessões, respostas, pontuação, relatórios e configurações. Guarde o arquivo em um local seguro.</p>
-      <div class="linha"><button id="backup-exportar" type="button">Baixar backup</button></div>
-      <hr>
-      <p><b>Restaurar substitui todos os dados atuais</b> pelos dados do arquivo selecionado. Encerre todas as aulas antes de restaurar. Recomendamos baixar um backup atual antes de continuar.</p>
-      <div class="linha"><input id="backup-arquivo" type="file" accept=".sqlite,.db,application/vnd.sqlite3" aria-label="Arquivo de backup SQLite">
-        <button id="backup-importar" type="button">Restaurar backup</button></div>
-      <p id="backup-status" role="status"></p>
+      <h3>Histórico de atividades encerradas</h3>
+      <p class="muted">Todas as atividades já encerradas, agrupadas por turma. Clique em "Ver relatório" para detalhar.</p>
+      <div class="linha"><label>Turma: <select id="hist-sala"><option value="">Todas</option></select></label>
+      <button id="hist-atualizar" type="button">Atualizar</button></div>
     </div>
+    <div id="hist-lista"></div>
   </section>
+
+  <section id="aba-rel" class="aba">
+    <div class="caixa sem-print">
+      <h3>Relatórios</h3>
+      <div class="linha">
+        <select id="r-tipo">
+          <option value="geral">Geral (todas as turmas)</option>
+          <option value="sala">Por turma (todas as atividades)</option>
+          <option value="sessao">Por atividade específica</option>
+        </select>
+        <select id="r-sala"></select>
+        <select id="r-sessao" style="min-width:260px"></select>
+        <label>De: <input type="date" id="r-desde"></label>
+        <label>Até: <input type="date" id="r-ate"></label>
+        <button id="r-ver">Ver</button>
+        <button id="r-pdf">Exportar PDF</button>
+      </div>
+    </div>
+    <div id="r-resumo"></div>
+    <div id="r-tabela"></div>
+  </section>
+
+  <section id="aba-usuarios" class="aba">
+    <div class="caixa">
+      <h2>Usuários com acesso ao sistema</h2>
+      <p class="muted">Existem dois tipos de acesso: Professor e Administrador. Administradores podem gerenciar usuários e senhas. Senhas são armazenadas como hash e não podem ser recuperadas; use “Trocar senha” para definir uma nova.</p>
+      <div id="usuarios-lista" aria-live="polite"></div>
+    </div>
+    <form id="usuario-form" class="caixa">
+      <h3>Criar usuário</h3>
+      <div class="linha"><label for="usuario-nome">Usuário</label><input id="usuario-nome" autocomplete="off" maxlength="50" required></div>
+      <fieldset class="selecao-conteudos"><legend>Tipo de acesso</legend>
+        <label><input type="radio" name="tipo-acesso" value="professor" checked> Professor</label>
+        <label><input type="radio" name="tipo-acesso" value="admin"> Administrador</label>
+      </fieldset>
+      <div class="linha"><label for="usuario-senha">Senha</label><input id="usuario-senha" type="password" autocomplete="new-password" minlength="8" maxlength="128" required><button id="mostrar-senha-usuario" type="button" aria-pressed="false">Mostrar</button><small>Mínimo de 8 caracteres.</small></div>
+      <div class="linha"><button type="submit">Criar acesso</button><span id="usuarios-erro" role="status"></span></div>
+    </form>
+  </section>
+
 </main></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -129,15 +161,19 @@ const conteudosParaReforcarSelecionados = () =>
 async function api(u, m = 'GET', b) {
   const r = await fetch(u, { method: m, headers: { 'Content-Type': 'application/json', 'x-token': token || '' }, body: b ? JSON.stringify(b) : undefined });
   if (r.status === 401 && token) { sair(); throw new Error('Sessão expirada.'); }
-  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.erro || 'Erro'); return j;
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.erro || 'Erro');
+  return j;
 }
 function sair() { sessionStorage.removeItem('t'); location.reload(); }
 $('sair').onclick = sair;
 $('login').onsubmit = async (e) => {
   e.preventDefault();
   $('erro').textContent = '';
-  try { const r = await api('/api/admin/login', 'POST', { usuario: $('u').value, senha: $('s').value }); token = r.token; sessionStorage.setItem('t', token); iniciar(); }
-  catch (e) { $('erro').textContent = e.message; }
+  try {
+    const r = await api('/api/admin/login', 'POST', { usuario: $('u').value, senha: $('s').value });
+    token = r.token; sessionStorage.setItem('t', token); iniciar();
+  } catch (e) { $('erro').textContent = e.message; }
 };
 $('mostrar-senha').onclick = () => {
   const mostrar = $('s').type === 'password';
@@ -151,20 +187,26 @@ document.querySelectorAll('[data-aba]').forEach((b) => (b.onclick = () => {
   document.querySelectorAll('[data-aba]').forEach((x) => x.classList.toggle('sel', x === b));
   document.querySelectorAll('.aba').forEach((a) => a.classList.toggle('ativa', a.id === 'aba-' + b.dataset.aba));
   if (b.dataset.aba === 'rel') alvos();
-  if (b.dataset.aba === 'dados' && papel === 'primario') carregarDadosCriancas().catch((e) => alert(e.message));
+  if (b.dataset.aba === 'historico') carregarHistorico();
+  if (b.dataset.aba === 'usuarios' && papel === 'admin') carregarUsuarios().catch((e) => alert(e.message));
 }));
 
 // ---------- Aula ----------
 const socket = io();
 socket.on('painel', pintarSessoes);
 socket.on('connect', () => token && socket.emit('admin', { token }));
+
 function pintarSessoes(p) {
-  $('sessoes').innerHTML = p.map((s) => `<div class="item"><h3>${esc(s.sala)} — ${s.status === 'aguardando' ? '⏳ aguardando início' : '▶️ em andamento'}</h3>
-    <p>Conectados: <b>${s.conectados}</b> · Cadastrados: ${s.alunos} · Terminaram: <b>${s.terminaram}</b></p>
-    <p><small>Início: ${s.iniciada_em ? new Date(s.iniciada_em).toLocaleString('pt-BR') : (s.aberta_em ? new Date(s.aberta_em).toLocaleString('pt-BR') : '—')} · Fim: ${s.encerrada_em ? new Date(s.encerrada_em).toLocaleString('pt-BR') : '—'}</small></p>
-    ${s.status === 'iniciada' && s.iniciada_em ? `<p class="timer">Tempo decorrido: <b data-timer-inicio="${esc(s.iniciada_em)}">00:00:00</b></p>` : ''}
-    <div class="linha">${s.status === 'aguardando' ? `<button data-ini="${s.id}">▶ Iniciar atividade</button>` : ''}<button data-fim="${s.id}">⏹ Encerrar sessão</button></div>
-    <ol>${s.ranking.map((r) => `<li>${esc(r.nome)} — <b>${r.pontos}</b> pts</li>`).join('')}</ol></div>`).join('') || '<p>Nenhuma sessão aberta. Escolha uma sala e clique em “Abrir sessão”.</p>';
+  $('sessoes').innerHTML = p.map((s) => `
+    <div class="item">
+      <h3>${esc(s.sala)} — ${esc(s.rotulo)} ${s.status === 'aguardando' ? '⏳ aguardando início' : '▶️ em andamento'}</h3>
+      <p>Conectados: <b>${s.conectados}</b> · Cadastrados: ${s.alunos} · Terminaram: <b>${s.terminaram}</b></p>
+      ${s.status === 'aguardando' && s.iniciar_ate_em ? `<p>Início automático: <b>${s.alunos}/${s.limite_alunos_inicio}</b> alunos prontos · tempo restante <b data-timer-limite="${esc(s.iniciar_ate_em)}">00:00:00</b>. Encerra no horário previsto: <b>${s.fim_previsto_em ? new Date(s.fim_previsto_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—'}</b>.</p>` : ''}
+      <p><small>Início: ${s.iniciada_em ? new Date(s.iniciada_em).toLocaleString('pt-BR') : (s.aberta_em ? new Date(s.aberta_em).toLocaleString('pt-BR') : '—')} · Fim: ${s.encerrada_em ? new Date(s.encerrada_em).toLocaleString('pt-BR') : '—'}</small></p>
+      ${s.status === 'iniciada' && s.iniciada_em ? `<p class="timer">Tempo decorrido: <b data-timer-inicio="${esc(s.iniciada_em)}">00:00:00</b></p>` : ''}
+      <div class="linha">${s.status === 'aguardando' && !s.iniciar_ate_em ? `<button data-ini="${s.id}">▶ Iniciar atividade</button>` : ''}${s.status === 'iniciada' ? `<button data-fim="${s.id}">⏹ Encerrar atividade</button>` : ''}</div>
+      <ol>${s.ranking.map((r) => `<li>${esc(r.nome)} — <b>${r.pontos}</b> pts</li>`).join('')}</ol>
+    </div>`).join('') || '<p>Nenhuma atividade aberta. Escolha uma turma e clique em “Abrir atividade”.</p>';
   atualizarTimers();
 }
 function formatarDuracao(milissegundos) {
@@ -179,15 +221,46 @@ function atualizarTimers() {
     const inicio = Date.parse(timer.dataset.timerInicio);
     timer.textContent = Number.isFinite(inicio) ? formatarDuracao(Date.now() - inicio) : 'Horário indisponível';
   });
+  document.querySelectorAll('[data-timer-limite]').forEach((timer) => {
+    const limite = Date.parse(timer.dataset.timerLimite);
+    timer.textContent = Number.isFinite(limite)
+      ? formatarDuracao(Math.max(0, limite - Date.now()))
+      : 'Horário indisponível';
+  });
 }
 setInterval(atualizarTimers, 1000);
-$('sessoes').onclick = async (e) => {
-  const d = e.target.dataset; if (d.ini) await api(`/api/admin/sessoes/${d.ini}/iniciar`, 'POST');
-  if (d.fim && confirm('Encerrar a sessão agora?')) await api(`/api/admin/sessoes/${d.fim}/encerrar`, 'POST');
-};
-$('abrir').onclick = () => api('/api/admin/sessoes', 'POST', { sala_id: +$('sel-sala').value }).catch((e) => alert(e.message));
 
-// ---------- Salas ----------
+$('sessoes').onclick = async (e) => {
+  const d = e.target.dataset;
+  if (d.ini) await api(`/api/admin/sessoes/${d.ini}/iniciar`, 'POST');
+  if (d.fim && confirm('Encerrar a atividade agora?')) await api(`/api/admin/sessoes/${d.fim}/encerrar`, 'POST');
+};
+
+function sugerirRotulo() {
+  const salaId = +$('sel-sala').value;
+  const sala = salas.find((s) => s.id === salaId);
+  const hoje = new Date();
+  const dataFmt = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}/${hoje.getFullYear()}`;
+  const numero = (sala?._contadorAtividades || 0) + 1;
+  return `Atividade ${numero} - ${dataFmt}`;
+}
+
+$('sel-sala').onchange = () => {
+  if (!$('rotulo-atv').dataset.manual) $('rotulo-atv').value = sugerirRotulo();
+};
+$('rotulo-atv').oninput = (e) => { e.target.dataset.manual = '1'; };
+
+$('abrir').onclick = () => api('/api/admin/sessoes', 'POST', {
+  sala_id: +$('sel-sala').value,
+  rotulo: $('rotulo-atv').dataset.manual ? $('rotulo-atv').value || null : null,
+})
+  .then(async () => {
+    $('rotulo-atv').dataset.manual = '';
+    await carregarSalas();
+  })
+  .catch((e) => alert(e.message));
+
+// ---------- Turmas ----------
 $('f-ativ').innerHTML = Object.entries(NOMES).map(([k, v]) => `<label><input type="checkbox" value="${k}" checked> ${v}</label>`).join(' ');
 function formatarHoraInput(input) {
   const valor = input.value.replace(/\D/g, '').slice(0, 4);
@@ -203,10 +276,15 @@ function calcularFimPadrao(hora) {
   const total = (h * 60 + m + 55) % 1440;
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
-function linhaHorario(dia = 1, hora = '13:30', fim = '', data = '') {
+function linhaHorario(dia = 1, hora = '13:30', fim = '', data = '', inicioEspera = 8) {
   const d = document.createElement('div'); d.className = 'linha';
   let fimInformado = Boolean(fim);
-  d.innerHTML = `<select aria-label="Dia da semana">${DIAS.map((n, i) => `<option value="${i}" ${i === dia ? 'selected' : ''}>${n}</option>`).join('')}</select><label>Data <input type="date" value="${esc(data)}" aria-label="Data única da aula"></label><label>Início <input type="text" value="${hora}" placeholder="HH:mm" aria-label="Horário de início no formato 24 horas"></label><label>Fim <input type="text" value="${fim || calcularFimPadrao(hora)}" placeholder="HH:mm" aria-label="Horário de fim no formato 24 horas"></label><button type="button" aria-label="Remover horário">✕</button>`;
+  d.innerHTML = `<select aria-label="Dia da semana">${DIAS.map((n, i) => `<option value="${i}" ${i === dia ? 'selected' : ''}>${n}</option>`).join('')}</select>
+    <label>Data <input type="date" value="${esc(data)}" aria-label="Data única da aula"></label>
+    <label>Início <input type="text" value="${hora}" placeholder="HH:mm" aria-label="Horário de início no formato 24 horas"></label>
+    <label>Fim <input type="text" value="${fim || calcularFimPadrao(hora)}" placeholder="HH:mm" aria-label="Horário de fim no formato 24 horas"></label>
+    <label>Início automático após <input type="number" min="0" max="60" step="1" value="${inicioEspera}" aria-label="Minutos de espera para início automático" style="width:72px"> min</label>
+    <button type="button" aria-label="Remover horário">✕</button>`;
   const [dataInput, inicioInput, fimInput] = d.querySelectorAll('input');
   dataInput.addEventListener('change', () => {
     if (dataInput.value) d.querySelector('select').value = String(new Date(`${dataInput.value}T00:00:00.000Z`).getUTCDay());
@@ -219,35 +297,68 @@ function linhaHorario(dia = 1, hora = '13:30', fim = '', data = '') {
     fimInformado = true;
     formatarHoraInput(e.target);
   });
-  d.querySelector('button').onclick = () => d.remove(); $('f-horarios').appendChild(d);
+  d.querySelector('button').onclick = () => d.remove();
+  $('f-horarios').appendChild(d);
 }
 $('add-h').onclick = () => linhaHorario();
 const padroesPorAno = { 2: ['soma', 'subtracao', 'sequencia', 'par_impar', 'antecessor_sucessor'], 3: ['subtracao', 'soma', 'multiplicacao', 'sequencia', 'par_impar', 'maior_menor', 'formas', 'medidas'] };
-function limpar() { $('f-id').value = ''; $('f-nome').value = ''; $('f-prof').value = ''; $('f-ano').value = 2; document.querySelectorAll('#f-conteudo-dificil input').forEach((c) => (c.checked = false)); $('f-horarios').innerHTML = ''; $('f-erro').textContent = '';
-  $('form-titulo').textContent = 'Nova sala'; document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[2].includes(c.value))); linhaHorario(); }
+
+function limpar() {
+  $('f-id').value = ''; $('f-nome').value = ''; $('f-prof').value = ''; $('f-ano').value = 2;
+  document.querySelectorAll('#f-conteudo-dificil input').forEach((c) => (c.checked = false));
+  $('f-horarios').innerHTML = ''; $('f-erro').textContent = '';
+  $('form-titulo').textContent = 'Nova turma';
+  document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[2].includes(c.value)));
+  linhaHorario();
+}
 $('cancelar').onclick = limpar;
-$('f-ano').onchange = () => { const ano = +$('f-ano').value; document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[ano]?.includes(c.value) || false)); };
+$('f-ano').onchange = () => {
+  const ano = +$('f-ano').value;
+  document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = padroesPorAno[ano]?.includes(c.value) || false));
+};
 $('salvar').onclick = async () => {
   const horarios = [...$('f-horarios').children].map((r) => {
-    const [data, hora, fim] = r.querySelectorAll('input');
-    return { dia: +r.querySelector('select').value, data: data.value, hora: hora.value, fim: fim.value };
+    const [data, hora, fim, inicioEsperaInput] = r.querySelectorAll('input');
+    return {
+      dia: +r.querySelector('select').value,
+      data: data.value,
+      hora: hora.value,
+      fim: fim.value,
+      inicio_espera_min: inicioEsperaInput.value.trim() === '' ? null : Number(inicioEsperaInput.value),
+    };
   });
-  if (horarios.some(({ dia, data, hora, fim }) => (data && new Date(`${data}T00:00:00.000Z`).getUTCDay() !== dia) ||
+  if (horarios.some(({ dia, data, hora, fim, inicio_espera_min }) => (data && new Date(`${data}T00:00:00.000Z`).getUTCDay() !== dia) ||
       !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(hora) ||
-      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(fim) || fim <= hora)) {
-    $('f-erro').textContent = 'Confira se o dia corresponde à data e informe início e fim no formato HH:mm, com o fim depois do início.'; return;
+      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(fim) || fim <= hora ||
+      !Number.isInteger(inicio_espera_min) || inicio_espera_min < 0 || inicio_espera_min > 60)) {
+    $('f-erro').textContent = 'Confira a data, os horários e configure a espera do início automático entre 0 e 60 minutos.';
+    return;
   }
-  const body = { nome: $('f-nome').value, ano: +$('f-ano').value, professor: $('f-prof').value, conteudo_maior_dificuldade: conteudosParaReforcarSelecionados(),
+  const body = {
+    nome: $('f-nome').value, ano: +$('f-ano').value, professor: $('f-prof').value,
+    conteudo_maior_dificuldade: conteudosParaReforcarSelecionados(),
     horarios,
-    atividades: [...document.querySelectorAll('#f-ativ input:checked')].map((c) => c.value) };
-  try { const id = $('f-id').value; await api(id ? '/api/admin/salas/' + id : '/api/admin/salas', id ? 'PUT' : 'POST', body); limpar(); carregarSalas(); }
-  catch (e) { $('f-erro').textContent = e.message; }
+    atividades: [...document.querySelectorAll('#f-ativ input:checked')].map((c) => c.value)
+  };
+  try {
+    const id = $('f-id').value;
+    await api(id ? '/api/admin/salas/' + id : '/api/admin/salas', id ? 'PUT' : 'POST', body);
+    limpar(); carregarSalas();
+  } catch (e) { $('f-erro').textContent = e.message; }
 };
+
 async function carregarSalas() {
   salas = await api('/api/admin/salas');
   renderizarSalas();
   $('sel-sala').innerHTML = salas.map((s) => `<option value="${s.id}">${esc(s.nome)} (${s.ano}º)</option>`).join('');
+  $('hist-sala').innerHTML = '<option value="">Todas</option>' + salas.map((s) => `<option value="${s.id}">${esc(s.nome)}</option>`).join('');
+  if (salas.length) {
+    $('sel-sala').value = salas[0].id;
+    $('rotulo-atv').value = sugerirRotulo();
+    $('rotulo-atv').dataset.manual = '';
+  }
 }
+
 function renderizarSalas() {
   const pesquisa = $('salas-pesquisa').value.trim().toLocaleLowerCase('pt-BR');
   const dia = $('salas-filtro-dia').value;
@@ -258,9 +369,13 @@ function renderizarSalas() {
       (!dia || s.horarios.some((h) => String(h.dia) === dia)) &&
       (!ano || String(s.ano) === ano);
   });
-  $('lista-salas').innerHTML = filtradas.map((s) => `<div class="item"><label><input type="checkbox" data-selecionar-sala="${s.id}" aria-label="Selecionar sala ${esc(s.nome)}"> Selecionar</label> <b>${esc(s.nome)}</b> — ${s.ano}º ano — ${esc(s.professor)}<br>
-    <small>Conteúdos para reforçar: ${s.conteudo_maior_dificuldade.length ? s.conteudo_maior_dificuldade.map((a) => NOMES[a] || a).join(', ') : 'nenhum'}<br>${s.horarios.map((h) => `${DIAS[h.dia]}${h.data ? ` ${h.data.split('-').reverse().join('/')}` : ''} ${h.hora}–${h.fim}`).join(', ') || 'sem horário'} · ${s.atividades.map((a) => NOMES[a]).join(', ') || 'sem conteúdo'}</small>
-    <div class="linha"><button data-ed="${s.id}">Editar</button><button data-del="${s.id}">Excluir</button></div></div>`).join('') || '<p>Nenhuma sala criada ainda.</p>';
+  $('lista-salas').innerHTML = filtradas.map((s) => `<div class="item">
+    <label><input type="checkbox" data-selecionar-sala="${s.id}" aria-label="Selecionar turma ${esc(s.nome)}"> Selecionar</label>
+    <b>${esc(s.nome)}</b> — ${s.ano}º ano — ${esc(s.professor)}<br>
+    <small>Conteúdos para reforçar: ${s.conteudo_maior_dificuldade.length ? s.conteudo_maior_dificuldade.map((a) => NOMES[a] || a).join(', ') : 'nenhum'}<br>
+    ${s.horarios.map((h) => `${DIAS[h.dia]}${h.data ? ` ${h.data.split('-').reverse().join('/')}` : ''} ${h.hora}–${h.fim} (início automático: até ${h.inicio_espera_min ?? 8} min)`).join(', ') || 'sem horário'} · ${s.atividades.map((a) => NOMES[a]).join(', ') || 'sem conteúdo'}</small>
+    <div class="linha"><button data-ed="${s.id}">Editar</button><button data-del="${s.id}">Excluir</button></div>
+  </div>`).join('') || '<p>Nenhuma turma criada ainda.</p>';
   atualizarSelecaoSalas();
 }
 ['salas-pesquisa', 'salas-filtro-dia', 'salas-filtro-ano'].forEach((id) => {
@@ -278,7 +393,7 @@ function atualizarSelecaoSalas() {
   $('salas-selecionar-todas').checked = caixas.length > 0 && marcadas === caixas.length;
   $('salas-selecionar-todas').indeterminate = marcadas > 0 && marcadas < caixas.length;
   $('salas-excluir-selecionadas').disabled = marcadas === 0;
-  $('salas-selecao-contagem').textContent = `${marcadas} sala${marcadas === 1 ? '' : 's'} selecionada${marcadas === 1 ? '' : 's'}`;
+  $('salas-selecao-contagem').textContent = `${marcadas} turma${marcadas === 1 ? '' : 's'} selecionada${marcadas === 1 ? '' : 's'}`;
 }
 $('salas-selecionar-todas').onchange = (e) => {
   document.querySelectorAll('[data-selecionar-sala]').forEach((c) => (c.checked = e.target.checked));
@@ -289,265 +404,263 @@ $('lista-salas').onchange = (e) => {
 };
 $('salas-excluir-selecionadas').onclick = async () => {
   const ids = [...document.querySelectorAll('[data-selecionar-sala]:checked')].map((c) => Number(c.dataset.selecionarSala));
-  if (!ids.length || !confirm(`Excluir ${ids.length} sala${ids.length === 1 ? '' : 's'} selecionada${ids.length === 1 ? '' : 's'}?`)) return;
+  if (!ids.length || !confirm(`Excluir ${ids.length} turma${ids.length === 1 ? '' : 's'} selecionada${ids.length === 1 ? '' : 's'}?`)) return;
   try { await api('/api/admin/salas', 'DELETE', { ids }); await carregarSalas(); }
   catch (e) { alert(e.message); }
 };
 $('lista-salas').onclick = async (e) => {
   const d = e.target.dataset;
-  if (d.del && confirm('Excluir esta sala?')) { await api('/api/admin/salas/' + d.del, 'DELETE'); carregarSalas(); }
-  if (d.ed) { const s = salas.find((x) => x.id == d.ed); limpar(); $('f-horarios').innerHTML = '';
+  if (d.del && confirm('Excluir esta turma?')) { await api('/api/admin/salas/' + d.del, 'DELETE'); carregarSalas(); }
+  if (d.ed) {
+    const s = salas.find((x) => x.id == d.ed); limpar(); $('f-horarios').innerHTML = '';
     $('f-id').value = s.id; $('f-nome').value = s.nome; $('f-ano').value = s.ano; $('f-prof').value = s.professor;
     document.querySelectorAll('#f-conteudo-dificil input').forEach((c) => (c.checked = s.conteudo_maior_dificuldade.includes(c.value)));
-    $('form-titulo').textContent = 'Editar sala';
-    s.horarios.forEach((h) => linhaHorario(h.dia, h.hora, h.fim, h.data)); document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = s.atividades.includes(c.value))); scrollTo(0, 0); }
+    $('form-titulo').textContent = 'Editar turma';
+    s.horarios.forEach((h) => linhaHorario(h.dia, h.hora, h.fim, h.data, h.inicio_espera_min));
+    document.querySelectorAll('#f-ativ input').forEach((c) => (c.checked = s.atividades.includes(c.value)));
+    scrollTo(0, 0);
+  }
+};
+
+// ---------- Histórico ----------
+async function carregarHistorico() {
+  const salaId = $('hist-sala').value;
+  const lista = await api('/api/admin/sessoes-encerradas' + (salaId ? `?sala_id=${salaId}` : ''));
+  if (!lista.length) { $('hist-lista').innerHTML = '<div class="caixa">Nenhuma atividade encerrada ainda.</div>'; return; }
+  const porSala = new Map();
+  lista.forEach((s) => {
+    if (!porSala.has(s.sala_id)) porSala.set(s.sala_id, { sala: s.sala, ano: s.ano, atividades: [] });
+    porSala.get(s.sala_id).atividades.push(s);
+  });
+  let html = '';
+  for (const { sala, ano, atividades } of porSala.values()) {
+    html += `<div class="caixa"><h3>${esc(sala)} (${ano}º ano)</h3>`;
+    html += '<div>' + atividades.map((a) => `
+      <div class="atv-card">
+        <header><div><b>${esc(a.rotulo)}</b> <span class="muted">— ${a.iniciada_em || a.aberta_em ? new Date(a.iniciada_em || a.aberta_em).toLocaleString('pt-BR') : ''}</span></div>
+          <button type="button" data-relatorio-sessao="${a.id}">Ver relatório</button></header>
+        <div class="muted">${a.alunos} crianças · ${a.respostas} respostas</div>
+      </div>`).join('') + '</div></div>';
+  }
+  $('hist-lista').innerHTML = html;
+}
+$('hist-atualizar').onclick = () => carregarHistorico().catch((e) => alert(e.message));
+$('hist-lista').onclick = (e) => {
+  const b = e.target.closest('[data-relatorio-sessao]');
+  if (!b) return;
+  const id = b.dataset.relatorioSessao;
+  document.querySelectorAll('[data-aba]').forEach((x) => x.classList.toggle('sel', x.dataset.aba === 'rel'));
+  document.querySelectorAll('.aba').forEach((a) => a.classList.toggle('ativa', a.id === 'aba-rel'));
+  $('r-tipo').value = 'sessao';
+  alvos().then(() => {
+    $('r-sessao').value = id;
+    $('r-ver').click();
+  });
 };
 
 // ---------- Relatórios ----------
 async function alvos() {
-  const t = $('r-tipo').value; $('r-alvo').style.display = (t === 'geral' || t === 'geral-detalhado') ? 'none' : '';
-  if (t === 'sala') $('r-alvo').innerHTML = salas.map((s) => `<option value="${s.id}">${esc(s.nome)}</option>`).join('');
-  if (t === 'aluno') $('r-alvo').innerHTML = (await api('/api/admin/alunos')).map((a) => `<option value="${a.id}">${esc(a.nome)} (${esc(a.sala)})</option>`).join('');
+  const tipo = $('r-tipo').value;
+  $('r-sala').style.display = tipo === 'geral' ? 'none' : '';
+  $('r-sessao').style.display = tipo === 'sessao' ? '' : 'none';
+  if (tipo !== 'geral') {
+    $('r-sala').innerHTML = salas.map((s) => `<option value="${s.id}">${esc(s.nome)}</option>`).join('');
+  }
+  if (tipo === 'sessao') {
+    const salaId = +$('r-sala').value || (salas[0] && salas[0].id);
+    const lista = await api('/api/admin/sessoes-encerradas' + (salaId ? `?sala_id=${salaId}` : ''));
+    $('r-sessao').innerHTML = lista.map((s) => `<option value="${s.id}">${esc(s.sala)} — ${esc(s.rotulo)}</option>`).join('');
+  }
 }
 $('r-tipo').onchange = alvos;
-const url = (csv) => `/api/admin/relatorio/${$('r-tipo').value}?id=${$('r-alvo').value || 0}${csv ? '&csv=1' : ''}`;
-const urlSalaDetalhada = () => `${url(false)}&detalhado=1`;
-const TITULOS_RELATORIO = {
-  atividade: 'Conteúdo', aluno: 'Criança', sala: 'Turma', perguntas: 'Perguntas',
-  acertos: 'Acertos', percentual_acerto: 'Aproveitamento (%)', pontos_total: 'Pontos',
-  pontos: 'Pontos', tempo_medio_s: 'Tempo médio (s)'
-};
-const resumoRelatorio = (resumo) => `<div class="resumo-relatorio">${Object.entries(resumo || {}).map(([chave, valor]) =>
-  `<div class="metrica">${esc(chave)}<b>${esc(valor)}</b></div>`).join('')}</div>`;
-$('r-ver').onclick = async () => {
-  const tipoRelatorio = $('r-tipo').value;
-  const porSala = tipoRelatorio === 'sala';
-  const geralDetalhado = tipoRelatorio === 'geral' || tipoRelatorio === 'geral-detalhado';
-  const pacote = await api(`${url(false)}&detalhado=1`);
-  const dadosSala = porSala ? pacote : null;
-  const rows = porSala ? dadosSala.relatorioAlunos : pacote.rows;
-  $('r-resumo').replaceChildren();
-  if (!rows.length && !geralDetalhado) {
-    $('r-tabela').innerHTML = `<p>${tipoRelatorio === 'aluno' ? 'Esta criança ainda não respondeu perguntas.' : 'Sem dados para este relatório.'}</p>`;
-    return;
-  }
-  if (tipoRelatorio === 'geral') {
-    $('r-resumo').replaceChildren();
-  } else if (tipoRelatorio === 'sala') {
-    $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + '<p>O total de perguntas é o maior número respondido por uma criança; o tempo médio é ponderado pelas perguntas.</p>';
-  }
-  if (porSala) {
-    const nomeAtividade = (atividade) => NOMES[atividade] || atividade;
-    const tabela = (cabecalhos, linhas) => `<div style="overflow-x:auto"><table><thead><tr>${cabecalhos.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${linhas.map((linha) => `<tr>${linha.map((celula) => `<td>${esc(celula)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-    const alunosImportados = (dadosSala.alunosImportados || rows.filter((aluno) => aluno.origem === 'Planilha' || aluno.origem === 'Estimado')
-      .map((aluno) => ({ id: null, nome: aluno.aluno, perguntas: aluno.perguntas, percentual_acerto: aluno.percentual_acerto })))
-      .map((aluno) => ({ ...aluno, origemImportada: true }));
-    const porAluno = [...dadosSala.alunos, ...alunosImportados].map((aluno) => {
-      const atividades = dadosSala.dificuldadesPorAluno.filter((item) => !aluno.origemImportada && (aluno.id
-        ? item.aluno_id === aluno.id : item.aluno === aluno.nome));
-      const comDificuldade = atividades.filter((item) => item.percentual_acerto < 100);
-      if (!comDificuldade.length) {
-        const atividadeSugerida = aluno.atividade_sugerida || aluno.atividade_estimada;
-        const atividade = atividadeSugerida
-          ? nomeAtividade(atividadeSugerida)
-          : atividades.length
-            ? `Sem dificuldade identificada (${atividades.length} atividades, todas com 100% de acerto)`
-            : 'Sem dados de desempenho';
-        return [aluno.nome, atividade, aluno.percentual_acerto == null ? '—' : `${aluno.percentual_acerto}%`, aluno.perguntas];
-      }
-      const menorAcerto = Math.min(...comDificuldade.map((item) => item.percentual_acerto));
-      const maisDificeis = comDificuldade.filter((item) => item.percentual_acerto === menorAcerto);
-      return [aluno.nome, maisDificeis.map((item) => nomeAtividade(item.atividade)).join(', '),
-        `${menorAcerto}%`, maisDificeis.reduce((total, item) => total + item.perguntas, 0)];
-    });
-      const dificuldadesDaSala = dadosSala.dificuldadesDaSala.filter((item) => item.percentual_acerto < 100);
-      $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + `<h2>Dificuldades da turma</h2>
-      <p>Para crianças sem resultados separados por conteúdo, o reforço é estimado pelo aproveitamento individual e pelos conteúdos com menor aproveitamento na mesma série. O percentual e a quantidade de perguntas mostram os resultados gerais da criança.</p>
-      <h3>Atividades com menor acerto na sala</h3>${dificuldadesDaSala.length
-        ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Aproveitamento (%)'],
-          dificuldadesDaSala.map((item) => [nomeAtividade(item.atividade), item.perguntas, item.acertos, `${item.percentual_acerto}%`]))
-        : '<p>A sala ainda não tem dados de atividade nem uma turma do mesmo ano como referência.</p>'}
-      <h3>Atividade(s) para reforçar ou praticar</h3>
-      ${tabela(['Criança', 'Atividade(s) para reforçar ou praticar', 'Aproveitamento (%)', 'Perguntas nessas atividades'], porAluno)}`;
-  }
-  if (tipoRelatorio === 'aluno') {
-    const perguntas = rows.reduce((soma, r) => soma + r.perguntas, 0);
-    const acertos = rows.reduce((soma, r) => soma + r.acertos, 0);
-    const pontos = rows.reduce((soma, r) => soma + r.pontos_total, 0);
-    const percentual = perguntas
-      ? `${(rows.reduce((soma, r) => soma + r.percentual_acerto * r.perguntas, 0) / perguntas).toFixed(1)}%` : '—';
-    const menorAproveitamento = [...rows].sort((a, b) => a.percentual_acerto - b.percentual_acerto)[0];
-    const nomeAluno = $('r-alvo').selectedOptions[0]?.textContent || 'Criança selecionada';
-    $('r-resumo').innerHTML = resumoRelatorio(pacote.resumo) + `<h2>Relatório de ${esc(nomeAluno)}</h2><p>Desempenho acumulado por conteúdo</p><div class="resumo-relatorio">
-      <div class="metrica">Perguntas respondidas<b>${perguntas}</b></div>
-      <div class="metrica">Respostas marcadas corretas<b>${acertos} de ${perguntas}</b></div>
-      <div class="metrica">Aproveitamento ponderado<b>${percentual}</b></div>
-      <div class="metrica">Pontos nas perguntas<b>${pontos}</b></div>
-    </div>${menorAproveitamento ? `<p class="destaque-relatorio">Conteúdo para reforçar: <b>${esc(NOMES[menorAproveitamento.atividade] || menorAproveitamento.atividade)}</b> (${menorAproveitamento.percentual_acerto}% de aproveitamento)</p>` : ''}`;
-  }
-  if (geralDetalhado) {
-    const nomeAtividade = (atividade) => NOMES[atividade] || atividade;
-    const tabela = (cabecalhos, linhas) => `<div style="overflow-x:auto"><table><thead><tr>${cabecalhos.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${linhas.map((linha) => `<tr>${linha.map((celula) => `<td>${esc(celula)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-    $('r-resumo').innerHTML = '<p>Ranking geral de todos os alunos. Expanda cada sala para consultar o desempenho individual e por atividade.</p>';
-    let tabelaHTML = `<h2>Ranking Geral</h2>`;
-    if (rows.length) {
-      const k = Object.keys(rows[0]);
-      const valor = (coluna, linha) => {
-        if (coluna === 'atividade') return NOMES[linha[coluna]] || linha[coluna];
-        if (linha[coluna] == null) return '—';
-        if (coluna === 'percentual_acerto') return `${linha[coluna]}%`;
-        return linha[coluna];
-      };
-      tabelaHTML += `<table><thead><tr>${k.map((c) => `<th>${esc(TITULOS_RELATORIO[c] || c)}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map((r) => `<tr>${k.map((c) => `<td>${esc(valor(c, r))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-    } else {
-      tabelaHTML += '<p>Sem dados para o ranking geral.</p>';
-    }
-    if (pacote.salasPorDetalhes && Object.keys(pacote.salasPorDetalhes).length) {
-      tabelaHTML += `<h2>Dados por Sala</h2>`;
-      for (const dadosSalaDet of Object.values(pacote.salasPorDetalhes)) {
-        const alunos = dadosSalaDet.alunos || [];
-        const dificuldadesDaSala = dadosSalaDet.dificuldadesDaSala || [];
-        const dificuldadesPorAluno = dadosSalaDet.dificuldadesPorAluno || [];
-        tabelaHTML += `<details class="item sala-expandivel">
-          <summary>${esc(dadosSalaDet.nome)} <small>(${alunos.length} crianças)</small></summary>
-          <div>${resumoRelatorio(dadosSalaDet.resumo)}
-            <h4>Desempenho das crianças</h4>
-            ${alunos.length
-              ? tabela(['Criança', 'Perguntas', 'Acertos', 'Aproveitamento (%)', 'Pontos', 'Tempo médio (s)'],
-                alunos.map((a) => [a.aluno, a.perguntas, a.acertos, a.percentual_acerto == null ? '—' : `${a.percentual_acerto}%`,
-                  a.pontos_total, a.tempo_medio_s == null ? '—' : a.tempo_medio_s]))
-              : '<p>Sem dados de crianças nesta sala.</p>'}
-            <h4>Desempenho por atividade da sala</h4>
-            ${dificuldadesDaSala.length
-              ? tabela(['Atividade', 'Perguntas', 'Acertos', 'Aproveitamento (%)'],
-                dificuldadesDaSala.map((d) => [nomeAtividade(d.atividade), d.perguntas, d.acertos, `${d.percentual_acerto}%`]))
-              : '<p>Sem dados por atividade nesta sala.</p>'}
-            <h4>Desempenho por criança e atividade</h4>
-            ${dificuldadesPorAluno.length
-              ? tabela(['Criança', 'Atividade', 'Perguntas', 'Aproveitamento (%)'],
-                dificuldadesPorAluno.map((d) => [d.aluno, nomeAtividade(d.atividade), d.perguntas, `${d.percentual_acerto}%`]))
-              : '<p>Sem dados por criança e atividade nesta sala.</p>'}
-          </div>
-        </details>`;
-      }
-    }
-    $('r-tabela').innerHTML = tabelaHTML;
-    return;
-  }
-  const k = Object.keys(rows[0]).filter((coluna) => coluna !== 'origem');
-  const valor = (coluna, linha) => {
-    if (coluna === 'atividade') return NOMES[linha[coluna]] || linha[coluna];
-    if (linha[coluna] == null) return '—';
-    if (coluna === 'percentual_acerto') return `${linha[coluna]}%`;
-    return linha[coluna];
-  };
-  $('r-tabela').innerHTML = `<table><thead><tr>${k.map((c) => `<th>${esc(TITULOS_RELATORIO[c] || c)}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map((r) => `<tr>${k.map((c) => `<td>${esc(valor(c, r))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-};
-$('r-csv').onclick = async () => {
-  const r = await fetch(url(true), { headers: { 'x-token': token } }); const a = document.createElement('a');
-  a.href = URL.createObjectURL(await r.blob()); a.download = `relatorio-${$('r-tipo').value}.csv`; a.click();
-};
-$('r-pdf').onclick = async () => {
-  const r = await fetch(url(false) + '&pdf=1', { headers: { 'x-token': token } });
-  if (!r.ok) throw new Error('Não foi possível gerar o PDF.');
-  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob());
-  a.download = `relatorio-${$('r-tipo').value}.pdf`; a.click(); URL.revokeObjectURL(a.href);
-};
+$('r-sala').onchange = () => { if ($('r-tipo').value === 'sessao') alvos(); };
 
-$('backup-exportar').onclick = async () => {
-  try {
-    const response = await fetch('/api/admin/backup', { headers: { 'x-token': token } });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body.erro || 'Não foi possível baixar o backup.');
-    }
-    const urlArquivo = URL.createObjectURL(await response.blob());
-    const link = document.createElement('a');
-    link.href = urlArquivo;
-    link.download = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'matematica-backup.sqlite';
-    link.click();
-    URL.revokeObjectURL(urlArquivo);
-    $('backup-status').textContent = 'Backup baixado.';
-  } catch (error) {
-    $('backup-status').textContent = error.message;
-    alert(`Não foi possível restaurar o backup.\n\n${error.message}`);
-  }
-};
-$('backup-importar').onclick = async () => {
-  const arquivo = $('backup-arquivo').files[0];
-  if (!arquivo) {
-    $('backup-status').textContent = 'Selecione um arquivo de backup SQLite.';
-    return;
-  }
-  const tamanhoMb = (arquivo.size / (1024 * 1024)).toFixed(2);
-  if (!confirm(`CONFIRMAR TROCA DE DADOS\n\nO banco atual será substituído pelos dados do arquivo:\n${arquivo.name} (${tamanhoMb} MB)\n\nEssa ação substitui todos os dados de salas, aulas, crianças, respostas e relatórios. Encerre todas as aulas e confirme que salvou um backup atual.\n\nDeseja trocar os dados agora?`)) return;
-  $('backup-status').textContent = 'Validando e restaurando backup…';
-  try {
-    const response = await fetch('/api/admin/backup', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/vnd.sqlite3', 'x-token': token },
-      body: arquivo,
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.erro || 'Não foi possível restaurar o backup.');
-    sessionStorage.removeItem('t');
-    const tabelas = body.diferencas || [];
-    const resumo = body.dadosAlterados
-      ? `Houve dados alterados: sim.\n${body.tabelasAlteradas} tabela(s) tinham conteúdo diferente antes da restauração.`
-      : 'Houve dados alterados: não. O backup contém os mesmos dados que já estavam no sistema.';
-    alert(`Troca de dados concluída.\n\n${resumo}\n\nEntre novamente com as credenciais presentes no backup.`);
-    $('backup-status').textContent = `Restauração concluída. Dados alterados: ${body.dadosAlterados ? 'sim' : 'não'} (${body.tabelasAlteradas} tabelas diferentes de ${tabelas.length}).`;
-    location.reload();
-  } catch (error) {
-    $('backup-status').textContent = error.message;
-  }
-};
-
-async function carregarDadosCriancas() {
-  const collator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
-  const rows = (await api('/api/admin/dados-alunos')).sort((a, b) =>
-    collator.compare(a.nome, b.nome) || collator.compare(a.sala, b.sala) || a.id - b.id || collator.compare(a.tipo, b.tipo));
-  $('dados-criancas').innerHTML = rows.length
-    ? `<div style="overflow-x:auto"><table><thead><tr><th>Criança</th><th>Sala</th><th>Registro</th><th>Respostas</th><th>Pontos</th><th>Ação</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td>${esc(r.nome)}</td><td>${esc(r.sala)}</td><td>#${r.id}</td><td>${r.perguntas}</td><td>${r.pontos}</td>
-        <td><button type="button" data-editar-crianca="${r.id}" data-tipo-crianca="${r.tipo}" data-nome-crianca="${esc(r.nome)}">Editar nome</button> <button type="button" data-excluir-crianca="${r.id}" data-tipo-crianca="${r.tipo}" data-nome-crianca="${esc(r.nome)}" data-sala-crianca="${esc(r.sala)}">Excluir dados</button></td></tr>`).join('')}
-      </tbody></table></div>`
-    : '<p>Nenhum dado de criança encontrado.</p>';
+function resumoCards(dados) {
+  const t = dados.totais || {};
+  return `<div class="resumo-relatorio">
+    <div class="metrica">Crianças<b>${t.criancas ?? 0}</b></div>
+    <div class="metrica">Perguntas totais<b>${t.respostas ?? 0}</b></div>
+    <div class="metrica">Acertos<b>${t.acertos ?? 0}</b></div>
+    <div class="metrica">Aproveitamento<b>${(t.percentual_geral ?? 0).toFixed(1)}%</b></div>
+    <div class="metrica">Pontos<b>${t.pontos ?? 0}</b></div>
+    <div class="metrica">Duração<b>${dados.duracao_min == null ? '—' : dados.duracao_min + ' min'}</b></div>
+  </div>`;
 }
-$('dados-atualizar').onclick = () => carregarDadosCriancas().catch((e) => alert(e.message));
-$('dados-criancas').onclick = async (event) => {
-  const editar = event.target.closest('[data-editar-crianca]');
-  if (editar) {
-    const nome = prompt('Nome completo da criança:', editar.dataset.nomeCrianca);
-    if (nome === null || !nome.trim()) return;
-    try {
-      await api('/api/admin/dados-alunos', 'PATCH', { tipo: editar.dataset.tipoCrianca, id: Number(editar.dataset.editarCrianca), nome });
-      await carregarDadosCriancas();
-    } catch (e) { alert(e.message); }
-    return;
-  }
-  const button = event.target.closest('[data-excluir-crianca]');
-  if (!button) return;
-  const imported = button.dataset.tipoCrianca === 'importado';
-  const message = imported
-    ? `Excluir permanentemente somente o registro importado de ${button.dataset.nomeCrianca}, da sala ${button.dataset.salaCrianca}?`
-    : `Excluir permanentemente os dados de ${button.dataset.nomeCrianca}, da sala ${button.dataset.salaCrianca}, incluindo respostas, desafios, perfil e histórico de ranking?`;
-  if (!confirm(message)) return;
+
+function tabelaHTML(headers, rows) {
+  return `<div style="overflow-x:auto"><table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function sufixoProfessor(professor) {
+  const nome = String(professor || '').trim();
+  const marcador = nome.toLocaleLowerCase('pt-BR');
+  if (!nome || marcador === 'a definir' || marcador === 'importação histórica (responsável não informado)') return '';
+  return ` — ${esc(nome)}`;
+}
+
+$('r-ver').onclick = async () => {
+  const tipo = $('r-tipo').value;
+  const params = new URLSearchParams({ tipo });
+  if (tipo === 'sala') params.set('sala_id', $('r-sala').value);
+  if (tipo === 'sessao') params.set('sessao_id', $('r-sessao').value);
+  if ($('r-desde').value) params.set('desde', $('r-desde').value);
+  if ($('r-ate').value) params.set('ate', $('r-ate').value);
+
+  $('r-resumo').innerHTML = '<p>Carregando...</p>';
+  $('r-tabela').innerHTML = '';
   try {
-    await api('/api/admin/dados-alunos', 'DELETE', { tipo: button.dataset.tipoCrianca, id: Number(button.dataset.excluirCrianca) });
-    await carregarDadosCriancas();
-  } catch (e) { alert(e.message); }
+    const dados = await api('/api/admin/relatorio?' + params.toString());
+    $('r-resumo').innerHTML = '';
+    if (tipo === 'sessao') {
+      $('r-resumo').innerHTML = `<h2>${esc(dados.rotulo)} — ${esc(dados.sala)}</h2>` + resumoCards(dados);
+      $('r-tabela').innerHTML = `
+        <h3>Crianças</h3>
+        ${tabelaHTML(['Aluno', 'Perguntas', 'Acertos', '% Aprov.', 'Pontos', 'Tempo médio (s)'],
+          dados.alunos.map((a) => [a.nome, a.perguntas, a.acertos, a.percentual_acerto == null ? '—' : a.percentual_acerto + '%', a.pontos_total, a.tempo_medio_s == null ? '—' : a.tempo_medio_s]))}
+        <h3>Por atividade do jogo</h3>
+        ${tabelaHTML(['Atividade', 'Perguntas', 'Acertos', '% Aprov.', 'Tempo médio'],
+          dados.por_atividade.map((p) => [NOMES[p.atividade] || p.atividade, p.perguntas, p.acertos, p.percentual_acerto + '%', p.tempo_medio_s == null ? '—' : p.tempo_medio_s]))}
+        <h3>Criança x Atividade</h3>
+        ${tabelaHTML(['Criança', 'Atividade', 'Perguntas', 'Acertos', '% Aprov.'],
+          dados.por_aluno_atividade.map((p) => [p.aluno, NOMES[p.atividade] || p.atividade, p.perguntas, p.acertos, p.percentual_acerto + '%']))}
+      `;
+    } else if (tipo === 'sala') {
+      const lista = [dados];
+      $('r-resumo').innerHTML = `<h2>Relatório da turma ${esc(dados.sala.nome)}</h2>`;
+      $('r-tabela').innerHTML = lista.map((item) => {
+        let html = `<div class="caixa"><h3>${esc(item.sala.nome)} (${item.sala.ano}º ano)${sufixoProfessor(item.sala.professor)}</h3>`;
+        if (!item.atividades.length) return html + '<p>Sem atividades encerradas.</p></div>';
+        html += item.atividades.map((a) => `
+          <details class="sala-expandivel item"><summary><b>${esc(a.rotulo)}</b> <span class="muted">— ${a.iniciada_em || a.aberta_em ? new Date(a.iniciada_em || a.aberta_em).toLocaleString('pt-BR') : ''}</span></summary>
+            ${resumoCards(a)}
+            <h4>Desempenho das crianças</h4>
+            ${tabelaHTML(['Aluno', 'Perguntas', 'Acertos', '% Aprov.', 'Pontos', 'Tempo médio'],
+              a.alunos.map((al) => [al.nome, al.perguntas, al.acertos, al.percentual_acerto == null ? '—' : al.percentual_acerto + '%', al.pontos_total, al.tempo_medio_s == null ? '—' : al.tempo_medio_s]))}
+            <h4>Por atividade do jogo</h4>
+            ${tabelaHTML(['Atividade', 'Perguntas', 'Acertos', '% Aprov.'],
+              a.por_atividade.map((p) => [NOMES[p.atividade] || p.atividade, p.perguntas, p.acertos, p.percentual_acerto + '%']))}
+          </details>
+        `).join('');
+        return html + '</div>';
+      }).join('');
+    } else {
+      const lista = dados;
+      $('r-resumo').innerHTML = `<h2>Relatório geral</h2><p>${lista.length} turmas.</p>`;
+      $('r-tabela').innerHTML = lista.map((item) => {
+        let html = `<div class="caixa"><h3>${esc(item.sala.nome)} (${item.sala.ano}º ano)${sufixoProfessor(item.sala.professor)}</h3>`;
+        if (!item.atividades.length) return html + '<p>Sem atividades encerradas.</p></div>';
+        html += item.atividades.map((a) => `
+          <details class="sala-expandivel item"><summary><b>${esc(a.rotulo)}</b> <span class="muted">— ${a.iniciada_em || a.aberta_em ? new Date(a.iniciada_em || a.aberta_em).toLocaleString('pt-BR') : ''}</span></summary>
+            ${resumoCards(a)}
+            <h4>Desempenho das crianças</h4>
+            ${tabelaHTML(['Aluno', 'Perguntas', 'Acertos', '% Aprov.', 'Pontos', 'Tempo médio'],
+              a.alunos.map((al) => [al.nome, al.perguntas, al.acertos, al.percentual_acerto == null ? '—' : al.percentual_acerto + '%', al.pontos_total, al.tempo_medio_s == null ? '—' : al.tempo_medio_s]))}
+          </details>
+        `).join('');
+        return html + '</div>';
+      }).join('');
+    }
+  } catch (e) {
+    $('r-resumo').innerHTML = `<p>Erro: ${esc(e.message)}</p>`;
+  }
 };
 
+$('r-pdf').onclick = () => {
+  const tipo = $('r-tipo').value;
+  const params = new URLSearchParams({ tipo });
+  if (tipo === 'sala') params.set('sala_id', $('r-sala').value);
+  if (tipo === 'sessao') params.set('sessao_id', $('r-sessao').value);
+  if ($('r-desde').value) params.set('desde', $('r-desde').value);
+  if ($('r-ate').value) params.set('ate', $('r-ate').value);
+  const url = '/api/admin/relatorio.pdf?' + params.toString();
+  fetch(url, { headers: { 'x-token': token } }).then(async (r) => {
+    if (!r.ok) throw new Error('Erro ao gerar PDF');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = `relatorio-${tipo}.pdf`; a.click(); URL.revokeObjectURL(a.href);
+  }).catch((e) => alert(e.message));
+};
+
+async function carregarUsuarios() {
+  const usuarios = await api('/api/admin/usuarios');
+  $('usuarios-lista').innerHTML = usuarios.length
+    ? `<div style="overflow-x:auto"><table><thead><tr><th>Usuário</th><th>Acesso</th><th>Senha</th><th>Ações</th></tr></thead><tbody>
+      ${usuarios.map((usuario) => `<tr><td>${esc(usuario.usuario)}</td><td>${usuario.tipo_acesso === 'professor' ? 'Professor' : 'Administrador'}</td>
+        <td>Protegida (não exibida)</td>
+        <td><button type="button" data-trocar-senha="${usuario.id}" data-nome-usuario="${esc(usuario.usuario)}">Trocar senha</button>
+        <button type="button" data-excluir-usuario="${usuario.id}" data-nome-usuario="${esc(usuario.usuario)}">Excluir</button></td></tr>`).join('')}
+      </tbody></table></div>`
+    : '<p>Nenhum usuário cadastrado.</p>';
+}
+$('mostrar-senha-usuario').onclick = () => {
+  const mostrar = $('usuario-senha').type === 'password';
+  $('usuario-senha').type = mostrar ? 'text' : 'password';
+  $('mostrar-senha-usuario').textContent = mostrar ? 'Ocultar' : 'Mostrar';
+  $('mostrar-senha-usuario').setAttribute('aria-pressed', String(mostrar));
+  $('usuario-senha').focus();
+};
+$('usuario-form').onsubmit = async (event) => {
+  event.preventDefault();
+  $('usuarios-erro').textContent = '';
+  try {
+    await api('/api/admin/usuarios', 'POST', {
+      usuario: $('usuario-nome').value,
+      senha: $('usuario-senha').value,
+      tipo_acesso: $('usuario-form').elements['tipo-acesso'].value,
+    });
+    $('usuario-form').reset();
+    $('usuario-senha').type = 'password';
+    $('mostrar-senha-usuario').textContent = 'Mostrar';
+    $('mostrar-senha-usuario').setAttribute('aria-pressed', 'false');
+    await carregarUsuarios();
+    $('usuarios-erro').textContent = 'Usuário criado.';
+  } catch (error) {
+    $('usuarios-erro').textContent = error.message;
+  }
+};
+$('usuarios-lista').onclick = async (event) => {
+  const trocar = event.target.closest('[data-trocar-senha]');
+  if (trocar) {
+    const senha = prompt(`Nova senha para ${trocar.dataset.nomeUsuario} (mínimo de 8 caracteres):`);
+    if (senha === null) return;
+    try {
+      await api(`/api/admin/usuarios/${trocar.dataset.trocarSenha}/senha`, 'PUT', { senha });
+      $('usuarios-erro').textContent = 'Senha atualizada.';
+    } catch (error) {
+      $('usuarios-erro').textContent = error.message;
+    }
+    return;
+  }
+  const excluir = event.target.closest('[data-excluir-usuario]');
+  if (!excluir) return;
+  const ehUsuarioAtual = excluir.dataset.nomeUsuario === (await api('/api/admin/sessao')).usuario;
+  const aviso = ehUsuarioAtual
+    ? ' Este é o usuário conectado; você sairá do painel e precisará entrar com outro administrador.'
+    : '';
+  if (!confirm(`Excluir o acesso de "${excluir.dataset.nomeUsuario}"?${aviso}`)) return;
+  try {
+    const resultado = await api(`/api/admin/usuarios/${excluir.dataset.excluirUsuario}`, 'DELETE');
+    if (resultado.sessaoEncerrada) {
+      sessionStorage.removeItem('t');
+      alert('Usuário excluído. Entre com outra conta de Administrador.');
+      location.reload();
+      return;
+    }
+    $('usuarios-erro').textContent = 'Usuário excluído.';
+    await carregarUsuarios();
+  } catch (error) {
+    $('usuarios-erro').textContent = error.message;
+  }
+};
 async function iniciar() {
   papel = (await api('/api/admin/sessao')).papel;
-  $('botao-dados').hidden = papel !== 'primario';
-  $('botao-backup').hidden = papel !== 'primario';
+  $('botao-usuarios').hidden = papel !== 'admin';
   popularSelects();
   $('login').hidden = true; $('app').hidden = false; limpar();
-  socket.emit('admin', { token }); await carregarSalas(); pintarSessoes(await api('/api/admin/painel'));
+  socket.emit('admin', { token });
+  await carregarSalas();
+  pintarSessoes(await api('/api/admin/painel'));
+  await alvos();
 }
 if (token) iniciar().catch(() => {});
 </script>

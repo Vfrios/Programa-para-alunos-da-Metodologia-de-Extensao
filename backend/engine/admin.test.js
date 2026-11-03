@@ -3,9 +3,15 @@ const assert = require('node:assert/strict');
 const { DatabaseSync } = require('node:sqlite');
 const { configurarAdmin, confere } = require('./admin');
 
-function bancoDeTeste() {
+function bancoDeTeste(comTipoAcesso = false) {
   const db = new DatabaseSync(':memory:');
-  db.exec("CREATE TABLE admins(id INTEGER PRIMARY KEY AUTOINCREMENT, usuario TEXT UNIQUE NOT NULL, senha_hash TEXT NOT NULL, papel TEXT NOT NULL DEFAULT 'admin')");
+  db.exec(`CREATE TABLE admins(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario TEXT UNIQUE NOT NULL,
+    senha_hash TEXT NOT NULL,
+    papel TEXT NOT NULL DEFAULT 'admin' CHECK(papel IN ('admin','primario'))
+    ${comTipoAcesso ? ",tipo_acesso TEXT NOT NULL DEFAULT 'admin' CHECK(tipo_acesso IN ('professor','admin'))" : ''}
+  )`);
   return db;
 }
 
@@ -25,13 +31,13 @@ test('credenciais do Render atualizam a conta já existente no banco incluído',
 
 test('credenciais configuradas substituem a conta inicial quando o usuário difere', () => {
   const db = bancoDeTeste();
-  db.prepare('INSERT INTO admins(usuario,senha_hash) VALUES(?,?)').run('admin', 'hash-antigo');
+  db.prepare('INSERT INTO admins(usuario,senha_hash,papel) VALUES(?,?,?)').run('adm principal', 'hash-antigo', 'primario');
 
-  configurarAdmin(db, 'professor', 'outra-senha-segura', true);
+  configurarAdmin(db, 'admin-configurado', 'outra-senha-segura', true);
 
   assert.equal(db.prepare('SELECT COUNT(*) n FROM admins').get().n, 1);
   const admin = db.prepare('SELECT usuario,senha_hash,papel FROM admins').get();
-  assert.equal(admin.usuario, 'professor');
+  assert.equal(admin.usuario, 'admin-configurado');
   assert.equal(admin.papel, 'admin');
   assert.equal(confere('outra-senha-segura', admin.senha_hash), true);
   db.close();
@@ -43,32 +49,17 @@ test('ambiente de produção não inicia sem usuário e senha definidos', () => 
   db.close();
 });
 
-test('cria login primário separado e reconcilia o papel nas inicializações', () => {
-  const db = bancoDeTeste();
-  configurarAdmin(db, 'professor', 'senha-admin', true, {
-    usuario: 'dono',
-    senha: 'senha-primaria',
-  });
+test('converte logins primários antigos em administradores sem elevar professores', () => {
+  const db = bancoDeTeste(true);
+  db.prepare('INSERT INTO admins(usuario,senha_hash,papel,tipo_acesso) VALUES(?,?,?,?)')
+    .run('adm principal', 'hash-legado', 'primario', 'admin');
+  db.prepare('INSERT INTO admins(usuario,senha_hash,papel,tipo_acesso) VALUES(?,?,?,?)')
+    .run('docente', 'hash-professor', 'admin', 'professor');
 
-  const primario = db.prepare('SELECT usuario,senha_hash,papel FROM admins WHERE usuario=?').get('dono');
-  assert.equal(primario.papel, 'primario');
-  assert.equal(confere('senha-primaria', primario.senha_hash), true);
-  assert.equal(db.prepare('SELECT papel FROM admins WHERE usuario=?').get('professor').papel, 'admin');
+  configurarAdmin(db, 'adm principal', 'nova-senha', false);
 
-  configurarAdmin(db, 'professor', 'senha-admin', true);
-  assert.equal(db.prepare('SELECT papel FROM admins WHERE usuario=?').get('dono').papel, 'admin');
-  assert.equal(db.prepare("SELECT COUNT(*) n FROM admins WHERE papel='primario'").get().n, 0);
-  db.close();
-});
-
-test('não permite compartilhar o login nem configurar apenas metade das credenciais primárias', () => {
-  const db = bancoDeTeste();
-  assert.throws(() => configurarAdmin(db, 'professor', 'senha', true, {
-    usuario: 'professor',
-    senha: 'outra-senha',
-  }), /diferente do login administrativo comum/);
-  assert.throws(() => configurarAdmin(db, 'professor', 'senha', true, {
-    usuario: 'dono',
-  }), /PRIMARY_ADMIN_USER e PRIMARY_ADMIN_PASS juntos/);
+  assert.equal(db.prepare('SELECT papel,tipo_acesso FROM admins WHERE usuario=?').get('adm principal').papel, 'admin');
+  assert.equal(db.prepare('SELECT tipo_acesso FROM admins WHERE usuario=?').get('docente').tipo_acesso, 'professor');
+  assert.equal(db.prepare('SELECT senha_hash FROM admins WHERE usuario=?').get('adm principal').senha_hash, 'hash-legado');
   db.close();
 });

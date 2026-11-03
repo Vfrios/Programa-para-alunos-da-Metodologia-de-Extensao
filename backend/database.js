@@ -2,7 +2,15 @@
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs'), path = require('path');
 const { sincronizarCadastros } = require('./database-seed');
-const { migrateActivityMetrics } = require('./database-migrations');
+const {
+  migrateActivityMetrics,
+  migrateSessionLabels,
+  backfillSessionLabels,
+  migrateRespostaFlags,
+  migrateReportIndexes,
+  migrateImportedActivitySessions,
+  verificarSessoesEsperadas,
+} = require('./database-migrations');
 const { migrarTabelaSugestoes, inicializarSugestoesRevisao } = require('./engine/revisao');
 const { horaFim } = require('./agendamento');
 const caminhoBase = path.resolve(__dirname, '../database/matematica.db');
@@ -37,12 +45,19 @@ db.exec('PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;');
 db.exec(fs.readFileSync(path.join(__dirname, '../database/schema.sql'), 'utf8'));
 migrarTabelaSugestoes(db);
 migrateActivityMetrics(db);
+migrateSessionLabels(db);
+backfillSessionLabels(db);
+migrateRespostaFlags(db);
+migrateReportIndexes(db);
 for (const [tabela, coluna, definicao] of [
-  ['admins', 'papel', `TEXT NOT NULL DEFAULT 'admin' CHECK (papel IN ('admin','primario'))`],
+  ['admins', 'papel', `TEXT NOT NULL DEFAULT 'admin' CHECK (papel='admin')`],
+  ['admins', 'tipo_acesso', `TEXT NOT NULL DEFAULT 'admin' CHECK (tipo_acesso IN ('professor','admin'))`],
   ['historico_ranking', 'aluno_id', 'INTEGER'],
   ['horarios', 'fim', 'TEXT'],
   ['horarios', 'data', 'TEXT'],
+  ['horarios', 'inicio_espera_min', 'INTEGER NOT NULL DEFAULT 8 CHECK(inicio_espera_min BETWEEN 0 AND 60)'],
   ['sessoes', 'fim_previsto_em', 'TEXT'],
+  ['sessoes', 'iniciar_ate_em', 'TEXT'],
   ['alunos_importados', 'acertos', 'INTEGER'],
   ['alunos_importados', 'percentual_acerto', 'REAL'],
   ['alunos_importados', 'estimado', 'INTEGER NOT NULL DEFAULT 0'],
@@ -77,6 +92,8 @@ if (caminhoBanco !== caminhoBase && caminhoBanco !== ':memory:') {
     origem.close();
   }
 }
+migrateImportedActivitySessions(db);
+verificarSessoesEsperadas(db);
 inicializarSugestoesRevisao(db);
 const horariosSemFim = db.prepare('SELECT id,hora FROM horarios WHERE fim IS NULL').all();
 const atualizarFimHorario = db.prepare('UPDATE horarios SET fim=? WHERE id=?');

@@ -172,20 +172,20 @@ test('modelos de enunciado percorrem opções diferentes antes de repetir', () =
   assert.notEqual(primeiraVolta.at(-1), segundaVolta[0]);
 });
 
-test('cada conteúdo tem 30 enunciados diferentes antes de repetir um modelo', () => {
+test('cada conteúdo tem 625 enunciados diferentes antes de repetir um modelo', () => {
   for (const modelos of Object.values(MODELOS_ENUNCIADO)) {
-    assert.equal(modelos.length, 30);
-    assert.equal(new Set(modelos).size, 30);
+    assert.equal(modelos.length, 625);
+    assert.equal(new Set(modelos).size, 625);
     const sortear = criarSorteadorDeModelos();
-    const primeiraVolta = Array.from({ length: 30 }, () => sortear(modelos));
-    const segundaVolta = Array.from({ length: 30 }, () => sortear(modelos));
-    assert.equal(new Set(primeiraVolta).size, 30);
-    assert.equal(new Set(segundaVolta).size, 30);
+    const primeiraVolta = Array.from({ length: 625 }, () => sortear(modelos));
+    const segundaVolta = Array.from({ length: 625 }, () => sortear(modelos));
+    assert.equal(new Set(primeiraVolta).size, 625);
+    assert.equal(new Set(segundaVolta).size, 625);
     assert.notEqual(primeiraVolta.at(-1), segundaVolta[0]);
   }
 });
 
-test('cada pergunta gerada percorre 30 enunciados distintos por conteúdo', () => {
+test('cada pergunta gerada percorre 625 enunciados distintos por conteúdo', () => {
   const aleatorioOriginal = Math.random;
   let semente = 137;
   Math.random = () => {
@@ -195,8 +195,8 @@ test('cada pergunta gerada percorre 30 enunciados distintos por conteúdo', () =
   try {
     for (const atividade of ATIVIDADES) {
       const sortearModelo = criarSorteadorDeModelos();
-      const perguntas = Array.from({ length: 30 }, () => gerarPergunta(atividade, 1, sortearModelo));
-      assert.equal(new Set(perguntas.map((pergunta) => pergunta.texto)).size, 30, atividade);
+      const perguntas = Array.from({ length: 625 }, () => gerarPergunta(atividade, 1, sortearModelo));
+      assert.equal(new Set(perguntas.map((pergunta) => pergunta.texto)).size, 625, atividade);
     }
   } finally {
     Math.random = aleatorioOriginal;
