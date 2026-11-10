@@ -35,6 +35,37 @@ O `DB_FILE` do Render aponta para `/opt/render/project/src/database/matematica.d
 
 Como o caminho do Render é o próprio `database\matematica.db` incluído no deploy, salas, horários, conteúdos e registros agregados são servidos diretamente desse arquivo. Para publicar alterações feitas localmente, inclua o banco atualizado no deploy da branch configurada no Render.
 
+### Baixar uma cópia do banco atual do Render
+
+O backup contém todos os dados do sistema, inclusive dados pessoais e hashes de senhas. A exportação só é permitida para uma conta **Administrador** autenticada; não compartilhe o arquivo baixado. Não há botão nem comando visível na interface. Para baixar a cópia atual do banco:
+
+1. Abra o endereço do Render seguido de `/admin.html` e entre com uma conta Administrador.
+2. Abra as ferramentas do desenvolvedor do navegador (F12), selecione **Console** e cole o comando abaixo. Ele baixa `matematica-render.db` para a pasta de downloads do navegador.
+
+```js
+(async () => {
+  const token = sessionStorage.getItem('t');
+  if (!token) throw new Error('Entre no painel do Render como Administrador antes de executar.');
+  const resposta = await fetch('/api/admin/backup/exportar', { headers: { 'x-token': token } });
+  if (!resposta.ok) throw new Error(`Falha ao exportar o banco: HTTP ${resposta.status} - ${await resposta.text()}`);
+  const url = URL.createObjectURL(await resposta.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'matematica-render.db';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+})().catch(console.error);
+```
+
+Para usar os dados no computador local, primeiro pare o servidor local. No PowerShell, a partir da pasta do projeto, faça uma cópia de segurança do banco local e depois substitua-o pelo arquivo baixado (ajuste o caminho se a pasta de downloads for diferente):
+
+```powershell
+Copy-Item database\matematica.db database\matematica-local-antes-render.db
+Copy-Item "$HOME\Downloads\matematica-render.db" database\matematica.db -Force
+```
+
+O banco do Render não é alterado por essa exportação. Guarde o backup local até confirmar que os dados estão corretos; a cópia baixada pode conter dados recentes que ainda não existiam no banco local.
+
 Após uma quantidade aleatória de perguntas, sempre a partir da 7ª, há um desafio de pausa: memória, cálculo, sequência, paridade ou comparação, nessa ordem. Cada tipo só volta depois de cinco desafios; cada desafio resolvido no prazo adiciona 50 pontos ao ranking, e acertar antes faz a próxima atividade começar imediatamente. Todos os desafios têm limite de 15 segundos. Para o 2º ano, os desafios usam níveis mais simples e memória com dois pares; para o 3º ano, permanecem três pares.
 
 Nas perguntas respondidas pelo teclado numérico, a resposta correta é enviada automaticamente após a digitação; o botão **OK** continua disponível para enviar respostas manualmente.

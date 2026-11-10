@@ -90,6 +90,18 @@ test('administradores gerenciam usuários, trocam senhas e excluem acessos', asy
     usuario: 'novo-professor',
   });
   assert.equal((await requisitar('/api/admin/usuarios', 'GET', professorToken)).status, 403);
+  assert.equal((await fetch(`${base}/api/admin/backup/exportar`)).status, 401);
+  assert.equal((await fetch(`${base}/api/admin/backup/exportar`, {
+    headers: { 'x-token': professorToken },
+  })).status, 403);
+  const exportacao = await fetch(`${base}/api/admin/backup/exportar`, {
+    headers: { 'x-token': adminToken },
+  });
+  assert.equal(exportacao.status, 200);
+  assert.equal(exportacao.headers.get('content-type'), 'application/vnd.sqlite3');
+  assert.match(exportacao.headers.get('content-disposition'), /matematica-render\.db/);
+  const imagemBanco = Buffer.from(await exportacao.arrayBuffer());
+  assert.equal(imagemBanco.subarray(0, 16).toString(), 'SQLite format 3\0');
   const rotaBackupAntiga = await fetch(`${base}/api/admin/backup`, {
     headers: { 'x-token': professorToken },
   });

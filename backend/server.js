@@ -3,6 +3,7 @@ const express = require('express');
 const PDFDocument = require('pdfkit');
 const { Server } = require('socket.io');
 const db = require('./database');
+const { serializeDatabase } = require('./engine/database-backup');
 const { configurarAdmin, confere, hash } = require('./engine/admin');
 const { aproveitamentoResposta } = require('./engine/relatorios');
 const { detalharAtividadeImportada } = require('./imported-activity-report');
@@ -421,6 +422,16 @@ app.post('/api/admin/login', ok((req, res) => {
 app.get('/api/admin/sessao', auth, ok((req, res) => {
   const sessao = tokens.get(req.get('x-token'));
   res.json({ papel: sessao.papel, usuario: sessao.usuario });
+}));
+app.get('/api/admin/backup/exportar', authAdmin, ok((req, res) => {
+  const imagem = serializeDatabase(db);
+  res.set({
+    'Content-Type': 'application/vnd.sqlite3',
+    'Content-Disposition': 'attachment; filename="matematica-render.db"',
+    'Content-Length': imagem.length,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  }).send(imagem);
 }));
 app.get('/api/admin/usuarios', authAdmin, ok((q, res) => {
   res.json(all('SELECT id,usuario,tipo_acesso FROM admins ORDER BY usuario COLLATE NOCASE'));
